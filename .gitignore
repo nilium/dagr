@@ -1,0 +1,9 @@
+# OS X
+.DS_Store
+# vim (may not apply to all configurations of vim)
+.*.s??
+# Some testing / compilation byproducts
+*.o
+*.test
+*.out
+*.prof
