@@ -5,6 +5,14 @@ import (
 	"sync/atomic"
 )
 
+type CounterGet interface {
+	Get() float64
+}
+
+type CounterAdd interface {
+	Add(float64)
+}
+
 // Counter is a simple float64 counter that is atomically modified. All methods
 // on Counter are safe to call concurrently.
 type Counter struct {
