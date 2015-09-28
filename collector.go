@@ -55,8 +55,7 @@ func (c *Collector) WatchCounter(counter CounterGet, metric string) {
 func (c *Collector) captureSnapshot(whence time.Time) {
 	snapshot := c.metricSnapshot()
 
-	now := whence.Round(c.interval)
-	delta := now.Sub(c.lastCapture)
+	delta := whence.Sub(c.lastCapture)
 	if delta%c.interval > c.interval/2 {
 		delta += (c.interval * 5) / 10
 	}
@@ -87,7 +86,7 @@ func (c *Collector) captureSnapshot(whence time.Time) {
 		}
 	}
 
-	c.lastCapture = now
+	c.lastCapture = whence
 }
 
 func (c *Collector) waitUntil(t time.Time) bool {
