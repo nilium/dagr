@@ -1,6 +1,9 @@
 package dagr
 
 import (
+	"bytes"
+	"encoding/binary"
+	"io"
 	"log"
 	"math"
 	"time"
@@ -149,3 +152,84 @@ type Metric struct {
 }
 
 type MetricSet []Metric
+
+func (ms MetricSet) KVMap() MetricMap {
+	r := make(map[string]float64)
+	for _, m := range ms {
+		count := m.Count
+		for _, k := range m.Keys {
+			r[k] = count
+		}
+	}
+	return r
+}
+
+type MetricMap map[string]float64
+
+func (mm MetricMap) WriteTo(w io.Writer) (n int, err error) {
+	fw := failWriter{w: w}
+
+	m := map[string]float64(mm)
+	fw.Write(versionHeader)
+	writeUvarint(&fw, uint64(len(m)))
+	for k, c := range mm {
+		writeF64(&fw, c)
+		writeVarString(&fw, k)
+	}
+
+	return fw.written, fw.err
+}
+
+func (mm MetricMap) ReadFrom(r io.Reader) (n int, err error) {
+	fr := failReader{r: r}
+
+	var vh [4]byte
+	n, err = fr.Read(vh[:])
+	if n != 4 || err != nil {
+		return fr.read, fr.err
+	}
+
+	if !bytes.Equal(versionPrefix, vh[0:3]) {
+		return fr.read, ErrBadVersionHeader
+	}
+
+	switch vh[3] {
+	case 1:
+		return fr.read, mm.readV1From(&fr)
+	default:
+		return fr.read, ErrUnsupportedVersion
+	}
+}
+
+// v1 metric map reading
+
+func (mm MetricMap) readV1From(r byteReader) error {
+	numPairs, err := binary.ReadUvarint(r)
+	if err != nil {
+		return err
+	}
+
+	for ; numPairs > 0; numPairs-- {
+		if err := mm.readV1Pair(r); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (mm MetricMap) readV1Pair(r byteReader) error {
+	count, err := readF64(r)
+	if err != nil {
+		return err
+	}
+
+	name, err := readVarString(r)
+	if err != nil && err != io.EOF {
+		return err
+	}
+
+	mm[name] = count
+
+	return nil
+}
