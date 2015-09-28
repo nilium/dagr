@@ -1,7 +1,6 @@
 package dagr
 
 import (
-	"log"
 	"math"
 	"time"
 )
@@ -61,7 +60,6 @@ func (c *Collector) captureSnapshot(whence time.Time) {
 	if delta%c.interval > c.interval/2 {
 		delta += (c.interval * 5) / 10
 	}
-	log.Println(delta)
 	shift := int(delta / c.interval)
 
 	caps := c.captures
@@ -116,7 +114,6 @@ runloop:
 		case t := <-tick.C:
 			now := time.Now()
 			c.captureSnapshot(t)
-			log.Println("Snapshot at", t.Round(c.interval).Format(time.StampNano), "took", time.Since(now))
 		case <-c.stop:
 			break runloop
 		}
