@@ -112,7 +112,6 @@ runloop:
 	for {
 		select {
 		case t := <-tick.C:
-			now := time.Now()
 			c.captureSnapshot(t)
 		case <-c.stop:
 			break runloop
