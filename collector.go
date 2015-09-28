@@ -7,7 +7,7 @@ import (
 
 type Collector struct {
 	// counters is a map of counters to their metric keys
-	counters map[string]*Counter
+	counters map[string]CounterGet
 	// captures is a map of captured counter data relative to the last
 	// capture time (walking backwards by interval) -- snapshot intervals
 	// without captured data are given a NaN value
@@ -33,7 +33,7 @@ func NewCollector(interval, span time.Duration) *Collector {
 	}
 
 	return &Collector{
-		counters:    map[string]*Counter{},
+		counters:    map[string]CounterGet{},
 		captures:    map[string][]float64{},
 		lastCapture: time.Now().Round(interval),
 
@@ -47,7 +47,7 @@ func NewCollector(interval, span time.Duration) *Collector {
 	}
 }
 
-func (c *Collector) WatchCounter(counter *Counter, metric string) {
+func (c *Collector) WatchCounter(counter CounterGet, metric string) {
 	c.counters[metric] = counter
 	c.captures[metric] = make([]float64, c.spanSize)
 }
@@ -121,7 +121,7 @@ runloop:
 }
 
 func (c *Collector) metricSnapshot() MetricSet {
-	metrics := map[*Counter]Metric{}
+	metrics := map[CounterGet]Metric{}
 
 	for key, counter := range c.counters {
 		m, ok := metrics[counter]
