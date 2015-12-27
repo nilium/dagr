@@ -29,6 +29,8 @@ var _ = (io.Writer)((*tempBuffer)(nil))
 var _ = (io.WriterTo)((*tempBuffer)(nil))
 
 func (t *tempBuffer) WriteTo(w io.Writer) (int64, error) {
+	w = getWriter(w)
+
 	diffWriters := true
 	if b, ok := w.(*bytes.Buffer); ok {
 		diffWriters = b != t.Buffer
@@ -43,7 +45,7 @@ func (t *tempBuffer) WriteTo(w io.Writer) (int64, error) {
 	if n < t.head {
 		// Panic if the buffer was truncated to somewhere before head. This case is supposedly impossible for
 		// owned buffers, since their heads are always 0 and their lengths are never < 0.
-		panic("tempBuffer: head > buffer length - buffer was truncated during write")
+		panic("dagr: tempBuffer.WriteTo: head > buffer length - buffer was truncated during write")
 	}
 
 	return n - t.head, nil
@@ -53,9 +55,29 @@ var tempBuffers = sync.Pool{
 	New: func() interface{} { return allocMinimumBuffer() },
 }
 
+// getWriter unwrap a *tempBuffer and returns its underlying *bytes.Buffer. This is to ensure we can test if two writers
+// are the same in a tempBuffer.WriteTo call and skip the write, because not doing so would be weird. If w is not
+// a *tempBuffer, it returns w. If w is a *tempBuffer and it's nil, getWriter panics.
+func getWriter(w io.Writer) io.Writer {
+	if tb, ok := w.(*tempBuffer); ok {
+		if tb == nil {
+			panic("dagr: getBuffer: target tempBuffer is nil")
+		}
+		return tb.Buffer
+	}
+
+	return w
+}
+
 func getBuffer(w io.Writer) *tempBuffer {
-	if b, ok := w.(*bytes.Buffer); b != nil && ok {
-		return &tempBuffer{b, false, int64(b.Len())}
+	w = getWriter(w)
+	// If either is nil, something will eventually panic, so we might as well do it here
+	switch w := w.(type) {
+	case *bytes.Buffer:
+		if w == nil {
+			panic("dagr: getBuffer: target *bytes.Buffer is nil")
+		}
+		return &tempBuffer{w, false, int64(w.Len())}
 	}
 
 	if b, ok := tempBuffers.Get().(*tempBuffer); ok {
