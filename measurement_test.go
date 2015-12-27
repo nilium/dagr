@@ -7,6 +7,25 @@ import (
 	"testing"
 )
 
+func TestWriteEmptyMeasurement(t *testing.T) {
+	defer prepareLogger(t)()
+
+	var rb bytes.Buffer
+	m := NewPoint(
+		"balderdash.things_baldered",
+		Tags{"pid": fmt.Sprint(1234), "host": "example.local"},
+		nil,
+	)
+
+	if _, err := WriteMeasurement(&rb, m); err != ErrNoFields {
+		t.Errorf("WriteMeasurements(m) error:\nGot %#v\nExpected %#v", err, ErrNoFields)
+	}
+
+	if rb.Len() != 0 {
+		t.Errorf("rb.Len: got=%d expected=%d", rb.Len(), 0)
+	}
+}
+
 func TestWriteMeasurement(t *testing.T) {
 	const required = `balderdash.things_baldered,host=example.local,pid=1234 on=T,value=123i 1136214245000000000` + "\n"
 

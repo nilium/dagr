@@ -106,6 +106,10 @@ var tagEscaper = strings.NewReplacer(
 )
 
 func writeFields(buf *tempBuffer, fields Fields, names []string) error {
+	if len(names) == 0 {
+		return ErrNoFields
+	}
+
 	for i, name := range names {
 		field := fields[name]
 		if i > 0 {
