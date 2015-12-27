@@ -139,6 +139,38 @@ func writeTags(buf *tempBuffer, tags Tags, names []string) {
 	}
 }
 
+// WriteMeasurements writes all measurements with fields to w. Like WriteMeasurement, this will buffer the measurements
+// before writing them in their entirety to w. This is effectively the same as iterating over ms and writing each
+// measurement to a temporary buffer before writing to w.
+//
+// Unlike WriteMeasurement, this will not return an error if a measurement has no fields. Measurements without fields
+// are silently ignored. If no measurements are written, WriteMeasurements returns 0 and nil.
+func WriteMeasurements(w io.Writer, ms ...Measurement) (n int64, err error) {
+	if len(ms) == 0 {
+		return 0, nil
+	}
+
+	buf := getBuffer(w)
+	defer putBuffer(buf)
+
+	for _, m := range ms {
+		head := buf.Len()
+		if _, err := WriteMeasurement(buf, m); err == ErrNoFields {
+			// Disregard
+			buf.Truncate(head)
+		} else if err != nil {
+			buf.Truncate(int(buf.head))
+			return 0, err
+		}
+	}
+
+	if buf.Len() == int(buf.head) {
+		return 0, nil
+	}
+
+	return buf.WriteTo(w)
+}
+
 // WriteMeasurement writes a single measurement, m, to w. It returns the number of bytes written and any error that
 // occurred when writing the measurement.
 //

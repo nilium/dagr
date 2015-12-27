@@ -54,6 +54,49 @@ func TestWriteMeasurement(t *testing.T) {
 	}
 }
 
+func TestWriteMeasurements(t *testing.T) {
+	const required = `balderdash.things_baldered,host=example.local,pid=1234 on=T,value=123i 1136214245000000000` + "\n" +
+		`system.cache_flustered,host=example.local,pid=5678 source=456i 1136214245000000000` + "\n"
+
+	defer prepareLogger(t)()
+
+	integer := new(Int)
+	otherInt := new(Int)
+	boolean := new(Bool)
+
+	boolean.Set(true)
+	integer.Set(123)
+	otherInt.Set(456)
+
+	var rb bytes.Buffer
+	ms := []Measurement{
+		NewPoint(
+			"balderdash.things_baldered",
+			Tags{"pid": fmt.Sprint(1234), "host": "example.local"},
+			Fields{"value": integer, "on": boolean},
+		),
+		NewPoint(
+			"system.cache_flustered",
+			Tags{"pid": fmt.Sprint(5678), "host": "example.local"},
+			nil,
+		),
+		NewPoint(
+			"system.cache_flustered",
+			Tags{"pid": fmt.Sprint(5678), "host": "example.local"},
+			Fields{"source": otherInt},
+		),
+	}
+
+	_, err := WriteMeasurements(&rb, ms...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if bs := rb.String(); bs != required {
+		t.Errorf("Expected ---\n%s\n---\n\nGot ---\n%s\n---", required, bs)
+	}
+}
+
 func TestCompiledPoint(t *testing.T) {
 	const required = `service.some_event,host=example.local,pid=1234 depth=123.456,msg="a \"string\" of sorts",on=T,value=123i 1136214245000000000` + "\n"
 
