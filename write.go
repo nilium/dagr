@@ -124,7 +124,6 @@ func writeTags(buf *tempBuffer, tags Tags, names []string) {
 // If the measurement implements io.WriterTo, this simply calls that instead of WriteMeasurement.
 func WriteMeasurement(w io.Writer, m Measurement) (n int64, err error) {
 	buf := getBuffer(w)
-	head := buf.Len()
 	defer putBuffer(buf)
 
 	if mw, ok := m.(io.WriterTo); ok {
@@ -177,7 +176,7 @@ func WriteMeasurement(w io.Writer, m Measurement) (n int64, err error) {
 	sort.Strings(names)
 	buf.WriteByte(' ')
 	if err := writeFields(buf, fields, names); err != nil {
-		buf.Truncate(head)
+		buf.Truncate(int(buf.head))
 		return 0, err
 	}
 

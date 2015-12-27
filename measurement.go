@@ -76,7 +76,6 @@ func NewPoint(key string, tags map[string]string, fields map[string]Field) *Poin
 // return an error. If the point has no fields, it returns the error ErrNoFields.
 func (p *Point) WriteTo(w io.Writer) (int64, error) {
 	buf := getBuffer(w)
-	head := buf.Len()
 	p.m.RLock()
 	defer func() {
 		p.m.RUnlock()
@@ -88,7 +87,7 @@ func (p *Point) WriteTo(w io.Writer) (int64, error) {
 
 	buf.WriteByte(' ')
 	if err := writeFields(buf, p.fields, p.fieldOrder); err != nil {
-		buf.Truncate(head)
+		buf.Truncate(int(buf.head))
 		return 0, err
 	}
 

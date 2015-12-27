@@ -21,7 +21,6 @@ var _ = SnapshotMeasurement(compiledPoint{})
 
 func (c compiledPoint) WriteTo(w io.Writer) (int64, error) {
 	buf := getBuffer(w)
-	head := buf.Len()
 	defer putBuffer(buf)
 
 	buf.Write(c.prefix[:c.lead])
@@ -31,7 +30,7 @@ func (c compiledPoint) WriteTo(w io.Writer) (int64, error) {
 		}
 
 		if _, err := f.value.WriteTo(buf); err != nil {
-			buf.Truncate(head)
+			buf.Truncate(int(buf.head))
 			return 0, err
 		}
 	}
