@@ -10,6 +10,8 @@ import (
 func TestCompiledPoint(t *testing.T) {
 	const required = `service.some_event,host=example.local,pid=1234 depth=123.456,msg="a \"string\" of sorts",on=T,value=123i 1136214245000000000` + "\n"
 
+	defer prepareLogger(t)()
+
 	integer := new(Int)
 	boolean := new(Bool)
 	float := new(Float)
@@ -55,6 +57,8 @@ func TestCompiledPoint(t *testing.T) {
 func BenchmarkWriteMeasurement(b *testing.B) {
 	const result = `service.some_event,host=example.local,pid=1234 depth=123.456,msg="a \"string\" of sorts",on=T,value=123i 1136214245000000000` + "\n"
 
+	defer prepareLogger(b)()
+
 	integer := new(Int)
 	boolean := new(Bool)
 	float := new(Float)
@@ -79,6 +83,8 @@ func BenchmarkWriteMeasurement(b *testing.B) {
 func BenchmarkWriteMeasurement_Compiled(b *testing.B) {
 	const result = `service.some_event,host=example.local,pid=1234 depth=123.456,msg="a \"string\" of sorts",on=T,value=123i 1136214245000000000` + "\n"
 
+	defer prepareLogger(b)()
+
 	integer := new(Int)
 	boolean := new(Bool)
 	float := new(Float)
@@ -102,6 +108,8 @@ func BenchmarkWriteMeasurement_Compiled(b *testing.B) {
 
 func BenchmarkWriteMeasurement_Parallel(b *testing.B) {
 	const result = `service.some_event,host=example.local,pid=1234 depth=123.456,msg="a \"string\" of sorts",on=T,value=123i 1136214245000000000` + "\n"
+
+	defer prepareLogger(b)()
 
 	integer := new(Int)
 	boolean := new(Bool)
@@ -128,6 +136,8 @@ func BenchmarkWriteMeasurement_Parallel(b *testing.B) {
 
 func BenchmarkWriteMeasurement_ParallelCompiled(b *testing.B) {
 	const result = `service.some_event,host=example.local,pid=1234 depth=123.456,msg="a \"string\" of sorts",on=T,value=123i 1136214245000000000` + "\n"
+
+	defer prepareLogger(b)()
 
 	integer := new(Int)
 	boolean := new(Bool)
