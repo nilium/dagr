@@ -4,8 +4,9 @@ package dagr
 type Error int
 
 const (
-	ErrNoFields = Error(1 + iota) // measurement has no fields
-	ErrEmptyKey
+	ErrNoFields    = Error(1 + iota) // Returned by WriteMeasurement(s) when a measurement has no fields
+	ErrEmptyKey                      // Used to panic when attempting to allocate a point with an empty key
+	ErrNoAllocator                   // Used to panic when attempting to allocate a PointSet with a nil allocator
 )
 
 func (e Error) Error() string {
@@ -16,6 +17,7 @@ func (e Error) Error() string {
 }
 
 var errDescs = map[Error]string{
-	ErrNoFields: "measurement has no fields",
-	ErrEmptyKey: "NewPoint: key is empty",
+	ErrNoFields:    "measurement has no fields",
+	ErrEmptyKey:    "NewPoint: key is empty",
+	ErrNoAllocator: "allocator is nil",
 }
