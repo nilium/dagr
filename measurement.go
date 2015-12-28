@@ -10,7 +10,37 @@ import (
 
 type Tags map[string]string
 
+// Dup clones the Tags map, t. If t is nil, it returns nil.
+func (t Tags) Dup() Tags {
+	if t == nil {
+		return nil
+	}
+
+	d := make(Tags, len(t))
+	for name, tag := range t {
+		d[name] = tag
+	}
+	return d
+}
+
 type Fields map[string]Field
+
+// Dup clones the Fields map. If deep is true, it will also duplicate the fields held, creating new field instances,
+// otherwise it retains its references to the Fields held by fs. If fs is nil, it returns nil.
+func (fs Fields) Dup(deep bool) Fields {
+	if fs == nil {
+		return nil
+	}
+
+	d := make(Fields, len(fs))
+	for name, field := range fs {
+		if deep {
+			field = field.Dup()
+		}
+		d[name] = field
+	}
+	return d
+}
 
 // Measurement defines the minimum interface for a measurement that could be passed to InfluxDB. All measurements must
 // have a key and a minimum of one field. Tags are optional.
@@ -18,8 +48,8 @@ type Fields map[string]Field
 // Unless stated otherwise, the results of Tags and Fields are considered immutable.
 type Measurement interface {
 	Key() string
-	Tags() map[string]string
-	Fields() map[string]Field
+	Tags() Tags
+	Fields() Fields
 }
 
 // TimeMeasurement is a measurement that has a known, known, fixed time. It can be considered a measurement that is
@@ -50,7 +80,7 @@ var _ = Measurement((*Point)(nil))
 
 // NewPoint allocates a new Point with the given key, tags, and fields. If key is empty, NewPoint panics. If fields is
 // empty, the point cannot be written until it has at least one field.
-func NewPoint(key string, tags map[string]string, fields map[string]Field) *Point {
+func NewPoint(key string, tags Tags, fields Fields) *Point {
 	if key == "" {
 		panic("dagr.NewPoint: key is empty")
 	}
@@ -156,14 +186,6 @@ func (p *Point) compile() compiledPoint {
 
 // Tags
 
-func (p *Point) dupTags() map[string]string {
-	tags := make(map[string]string, len(p.tags))
-	for name, tag := range p.tags {
-		tags[name] = tag
-	}
-	return tags
-}
-
 func (p *Point) addTag(name, value string) {
 	_, exists := p.tags[name]
 	p.tags[name] = value
@@ -215,10 +237,10 @@ func (p *Point) RemoveTag(name string) {
 
 // Tags returns a copy of the point's tags as a map of names to values. Names and values are not escaped. It is safe to
 // copy and modify the result of this method.
-func (p *Point) Tags() map[string]string {
+func (p *Point) Tags() Tags {
 	p.m.RLock()
 	defer p.m.RUnlock()
-	return p.dupTags()
+	return Tags(p.tags).Dup()
 }
 
 // Fields
@@ -287,21 +309,17 @@ func (p *Point) RemoveField(name string) {
 	}
 }
 
-func (p *Point) dupFields() map[string]Field {
-	fields := make(map[string]Field, len(p.fields))
-	for name, field := range p.fields {
-		fields[name] = field
-	}
-	return fields
+func (p *Point) dupFields() Fields {
+	return Fields(p.fields).Dup(false)
 }
 
 // Fields returns a map of the point's fields. This map is a copy of the point's state and may be modified without
 // affecting the point. The fields themselves are those held by the point, however, and modifying them will modify the
 // point's state.
-func (p *Point) Fields() map[string]Field {
+func (p *Point) Fields() Fields {
 	p.m.RLock()
 	defer p.m.RUnlock()
-	return p.dupFields()
+	return Fields(p.fields).Dup(false)
 }
 
 func (p *Point) MarshalJSON() ([]byte, error) {

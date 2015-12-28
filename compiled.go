@@ -48,11 +48,11 @@ func (c compiledPoint) Key() string {
 	return ""
 }
 
-func (c compiledPoint) Fields() map[string]Field {
+func (c compiledPoint) Fields() Fields {
 	return nil
 }
 
-func (c compiledPoint) Tags() map[string]string {
+func (c compiledPoint) Tags() Tags {
 	return nil
 }
 
