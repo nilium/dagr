@@ -140,14 +140,14 @@ func badJSONValue(in []byte) string {
 
 func (n *Int) UnmarshalJSON(in []byte) error {
 	if len(in) == 0 {
-		return &json.UnmarshalTypeError{"empty JSON", reflect.TypeOf(n), 0}
+		return &json.UnmarshalTypeError{Value: "empty JSON", Type: reflect.TypeOf(n)}
 	}
 
 	var err error
 	var next int64
 	switch in[0] {
 	case 'n', 't', 'f', '{', '[':
-		return &json.UnmarshalTypeError{badJSONValue(in), reflect.TypeOf(n), 0}
+		return &json.UnmarshalTypeError{Value: badJSONValue(in), Type: reflect.TypeOf(n)}
 	case '"':
 		var new json.Number
 		err = json.Unmarshal(in, &new)
@@ -155,7 +155,7 @@ func (n *Int) UnmarshalJSON(in []byte) error {
 			next, err = new.Int64()
 
 			if err != nil {
-				err = &json.UnmarshalTypeError{"quoted number " + new.String(), reflect.TypeOf(n), 0}
+				err = &json.UnmarshalTypeError{Value: "quoted number " + new.String(), Type: reflect.TypeOf(n)}
 			}
 		}
 	default:
@@ -223,14 +223,14 @@ func (f *Float) MarshalJSON() ([]byte, error) {
 
 func (f *Float) UnmarshalJSON(in []byte) error {
 	if len(in) == 0 {
-		return &json.UnmarshalTypeError{"number", reflect.TypeOf(f), 0}
+		return &json.UnmarshalTypeError{Value: "number", Type: reflect.TypeOf(f)}
 	}
 
 	var err error
 	var next float64
 	switch in[0] {
 	case 'n', 't', 'f', '{', '[':
-		return &json.UnmarshalTypeError{badJSONValue(in), reflect.TypeOf(f), 0}
+		return &json.UnmarshalTypeError{Value: badJSONValue(in), Type: reflect.TypeOf(f)}
 	case '"':
 		var new json.Number
 		err = json.Unmarshal(in, &new)
@@ -238,7 +238,7 @@ func (f *Float) UnmarshalJSON(in []byte) error {
 			next, err = new.Float64()
 
 			if err != nil {
-				err = &json.UnmarshalTypeError{"quoted number " + new.String(), reflect.TypeOf(f), 0}
+				err = &json.UnmarshalTypeError{Value: "quoted number " + new.String(), Type: reflect.TypeOf(f)}
 			}
 		}
 	default:
