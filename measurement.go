@@ -309,10 +309,6 @@ func (p *Point) RemoveField(name string) {
 	}
 }
 
-func (p *Point) dupFields() Fields {
-	return Fields(p.fields).Dup(false)
-}
-
 // Fields returns a map of the point's fields. This map is a copy of the point's state and may be modified without
 // affecting the point. The fields themselves are those held by the point, however, and modifying them will modify the
 // point's state.
