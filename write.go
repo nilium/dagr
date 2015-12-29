@@ -207,7 +207,7 @@ func WriteMeasurement(w io.Writer, m Measurement) (n int64, err error) {
 	}
 
 	// Write key
-	buf.WriteString(m.Key())
+	buf.WriteString(tagEscaper.Replace(m.Key()))
 
 	nameLen := len(tags)
 	if l := len(fields); l > nameLen {
