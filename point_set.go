@@ -112,8 +112,8 @@ func (p *PointSet) alloc(ident string, opaque interface{}) (m taggedMetric, ok b
 	p.m.Lock()
 	defer p.m.Unlock()
 
-	if m, ok := p.metrics[ident]; ok {
-		return m, true
+	if metric, ok := p.metrics[ident]; ok {
+		return metric, true
 	}
 
 	key, tags, fields := p.allocator.AllocatePoint(ident, opaque)
