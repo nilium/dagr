@@ -69,10 +69,10 @@ An **event**, on the other hand, is something short-lived but worth recording, l
 ```go
 // Setup
 event := dagr.RawPoint{
-	Key: "recv_error",
-	Tag: dagr.Tags{"host": "example.local"},
+	Key:    "recv_error",
+	Tag:    dagr.Tags{"host": "example.local"},
 	Fields: dagr.Fields{"fatal": dagr.RawBool(true), "message": dagr.RawString("Catastrophic rift in space-time continuum opened")},
-	Time: time.Now(), // if omitted, WriteMeasurement will use time.Now() anyway
+	Time:   time.Now(), // if omitted, WriteMeasurement will use time.Now() anyway
 }
 
 // And just send it once (again, ignoring errors)
