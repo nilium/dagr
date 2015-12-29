@@ -30,7 +30,7 @@ func ExampleWriteMeasurement() {
 // Compiled measurements can be used to speed up encoding if you're frequently writing a large number of measurements.
 // In most cases, this is entirely unnecessary. Compiled measurements only update their field values and are otherwise
 // immutable.
-func ExampleWriteCompiledMeasurement() {
+func ExampleWriteMeasurement_compiled() {
 	integer := new(Int)
 	boolean := new(Bool)
 	float := new(Float)

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func ExampleMarshalJSON() {
+func ExamplePoint_MarshalJSON() {
 	integer := new(Int)
 	boolean := new(Bool)
 	float := new(Float)
