@@ -81,6 +81,7 @@ func (b *Bool) UnmarshalJSON(js []byte) error {
 type Int int64
 
 var _ = Field((*Int)(nil))
+var _ = IntAdder((*Int)(nil))
 var _ = json.Marshaler((*Int)(nil))
 var _ = json.Unmarshaler((*Int)(nil))
 
@@ -175,6 +176,7 @@ func (n *Int) UnmarshalJSON(in []byte) error {
 type Float uint64
 
 var _ = Field((*Float)(nil))
+var _ = FloatAdder((*Float)(nil))
 var _ = json.Marshaler((*Float)(nil))
 var _ = json.Unmarshaler((*Float)(nil))
 
