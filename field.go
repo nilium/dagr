@@ -47,7 +47,7 @@ func (b *Bool) Set(new bool) {
 }
 
 func (b *Bool) Snapshot() Field {
-	return fixedBool(b.sample())
+	return RawBool(b.sample())
 }
 
 func (b *Bool) Dup() Field {
@@ -56,7 +56,7 @@ func (b *Bool) Dup() Field {
 }
 
 func (b *Bool) WriteTo(w io.Writer) (int64, error) {
-	return fixedBool(b.sample()).WriteTo(w)
+	return RawBool(b.sample()).WriteTo(w)
 }
 
 func (b *Bool) MarshalJSON() ([]byte, error) {
@@ -103,7 +103,7 @@ func (n *Int) Set(new int64) {
 }
 
 func (n *Int) Snapshot() Field {
-	return fixedInt(n.sample())
+	return RawInt(n.sample())
 }
 
 func (n *Int) Dup() Field {
@@ -112,7 +112,7 @@ func (n *Int) Dup() Field {
 }
 
 func (n *Int) WriteTo(w io.Writer) (int64, error) {
-	return fixedInt(n.sample()).WriteTo(w)
+	return RawInt(n.sample()).WriteTo(w)
 }
 
 func (n *Int) MarshalJSON() ([]byte, error) {
@@ -205,7 +205,7 @@ func (f *Float) Set(new float64) {
 }
 
 func (f *Float) Snapshot() Field {
-	return fixedFloat(f.sample())
+	return RawFloat(f.sample())
 }
 
 func (f *Float) Dup() Field {
@@ -214,7 +214,7 @@ func (f *Float) Dup() Field {
 }
 
 func (f *Float) WriteTo(w io.Writer) (int64, error) {
-	return fixedFloat(f.sample()).WriteTo(w)
+	return RawFloat(f.sample()).WriteTo(w)
 }
 
 func (f *Float) MarshalJSON() ([]byte, error) {
@@ -317,18 +317,19 @@ func (s *String) UnmarshalJSON(in []byte) error {
 }
 
 // Fixed types
-// These are used primarily for snapshotting, since
+// These are used primarily for snapshotting and as raw types for values that don't change on a point. (E.g., when using
+// RawPoint).
 
 type (
-	fixedBool   bool
-	fixedFloat  float64
-	fixedInt    int64
+	RawBool     bool
+	RawFloat    float64
+	RawInt      int64
 	fixedString []byte
 )
 
-func (f fixedBool) Dup() Field { return f }
+func (f RawBool) Dup() Field { return f }
 
-func (f fixedBool) MarshalJSON() ([]byte, error) {
+func (f RawBool) MarshalJSON() ([]byte, error) {
 	if f {
 		return []byte{'t', 'r', 'u', 'e'}, nil
 	} else {
@@ -336,7 +337,7 @@ func (f fixedBool) MarshalJSON() ([]byte, error) {
 	}
 }
 
-func (f fixedBool) WriteTo(w io.Writer) (n int64, err error) {
+func (f RawBool) WriteTo(w io.Writer) (n int64, err error) {
 	var c byte = 'F'
 	if f {
 		c = 'T'
@@ -349,26 +350,26 @@ func (f fixedBool) WriteTo(w io.Writer) (n int64, err error) {
 	return n, err
 }
 
-func (f fixedInt) Dup() Field { return f }
+func (f RawInt) Dup() Field { return f }
 
-func (f fixedInt) MarshalJSON() ([]byte, error) {
+func (f RawInt) MarshalJSON() ([]byte, error) {
 	return json.Marshal(int64(f))
 }
 
-func (f fixedInt) WriteTo(w io.Writer) (int64, error) {
+func (f RawInt) WriteTo(w io.Writer) (int64, error) {
 	var buf [20]byte
 	b := append(strconv.AppendInt(buf[0:0], int64(f), 10), 'i')
 	wn, err := w.Write(b)
 	return int64(wn), err
 }
 
-func (f fixedFloat) Dup() Field { return f }
+func (f RawFloat) Dup() Field { return f }
 
-func (f fixedFloat) MarshalJSON() ([]byte, error) {
+func (f RawFloat) MarshalJSON() ([]byte, error) {
 	return json.Marshal(float64(f))
 }
 
-func (f fixedFloat) WriteTo(w io.Writer) (int64, error) {
+func (f RawFloat) WriteTo(w io.Writer) (int64, error) {
 	var buf [32]byte
 	b := strconv.AppendFloat(buf[0:0], float64(f), 'f', -1, 64)
 	n, err := w.Write(b)
