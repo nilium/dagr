@@ -55,8 +55,8 @@ that you can update these fields mid-write without interrupting the write or cau
 occasionally end up with slightly out of sync fields between two writes).
 
 While the Int and Float types are useful as accumulators, you can also use Bool and String to keep global process state
-up to date in a Point before, allowing you to periodically send whether the process is sleeping or what its current
-stage is (e.g., starting up vs. serving vs. shutting down).
+up to date in a Point, allowing you to periodically send whether the process is sleeping or what its current stage is
+(e.g., starting up vs. serving vs. shutting down).
 
 Of course, you could also have short-time stats and allocate and expire them as needed. Dagr doesn't really enforce this
 model, it's just one way I think of things.
