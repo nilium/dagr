@@ -44,15 +44,15 @@ func (c compiledPoint) WriteTo(w io.Writer) (int64, error) {
 
 // compiledPoints are strictly for io.WriterTo usage and don't support regular Measurement options
 
-func (c compiledPoint) Key() string {
+func (c compiledPoint) GetKey() string {
 	return ""
 }
 
-func (c compiledPoint) Fields() Fields {
+func (c compiledPoint) GetFields() Fields {
 	return nil
 }
 
-func (c compiledPoint) Tags() Tags {
+func (c compiledPoint) GetTags() Tags {
 	return nil
 }
 
@@ -61,7 +61,7 @@ type fixedCompiledPoint struct {
 	when time.Time
 }
 
-func (f fixedCompiledPoint) Time() time.Time {
+func (f fixedCompiledPoint) GetTime() time.Time {
 	return f.when
 }
 

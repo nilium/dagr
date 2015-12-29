@@ -67,7 +67,7 @@ type taggedMetric struct {
 	fields Fields
 }
 
-func (t taggedMetric) Fields() Fields {
+func (t taggedMetric) GetFields() Fields {
 	return t.fields.Dup(false)
 }
 
@@ -129,7 +129,7 @@ func (p *PointSet) alloc(ident string, opaque interface{}) (m taggedMetric, ok b
 
 	m = taggedMetric{
 		Measurement: compiled,
-		fields:      pt.Fields(),
+		fields:      pt.GetFields(),
 	}
 	p.metrics[ident] = m
 
@@ -151,15 +151,15 @@ func (p *PointSet) lookup(ident string) (m taggedMetric, ok bool) {
 	return taggedMetric{}, false
 }
 
-// GetFields returns the fields for a particular identifier. If no point is found and no point can be allocated for the
-// identifier, it returns nil. The identifier may be an empty string.
-func (p *PointSet) GetFields(identifier string, opaque interface{}) Fields {
+// FieldsForID returns the fields for a particular identifier. If no point is found and no point can be allocated for
+// the identifier, it returns nil. The identifier may be an empty string.
+func (p *PointSet) FieldsForID(identifier string, opaque interface{}) Fields {
 	if m, ok := p.lookup(identifier); ok {
-		return m.Fields()
+		return m.GetFields()
 	}
 
 	if m, ok := p.alloc(identifier, opaque); ok {
-		return m.Fields()
+		return m.GetFields()
 	}
 
 	return nil
@@ -205,14 +205,14 @@ func (p *PointSet) WriteTo(w io.Writer) (int64, error) {
 
 // Key returns an empty string, as a PointSet is a collection of points and relies on its WriterTo implementation for
 // encoding its output.
-func (p *PointSet) Key() string {
+func (p *PointSet) GetKey() string {
 	return ""
 }
 
-func (p *PointSet) Fields() Fields {
+func (p *PointSet) GetFields() Fields {
 	return nil
 }
 
-func (p *PointSet) Tags() Tags {
+func (p *PointSet) GetTags() Tags {
 	return nil
 }

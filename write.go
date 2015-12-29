@@ -194,20 +194,20 @@ func WriteMeasurement(w io.Writer, m Measurement) (n int64, err error) {
 
 	var when time.Time
 	if m, ok := m.(TimeMeasurement); ok {
-		when = m.Time()
+		when = m.GetTime()
 	} else {
 		when = clock.Now()
 	}
 
-	tags := m.Tags()
-	fields := m.Fields()
+	tags := m.GetTags()
+	fields := m.GetFields()
 
 	if len(fields) == 0 {
 		return 0, ErrNoFields
 	}
 
 	// Write key
-	buf.WriteString(tagEscaper.Replace(m.Key()))
+	buf.WriteString(tagEscaper.Replace(m.GetKey()))
 
 	nameLen := len(tags)
 	if l := len(fields); l > nameLen {

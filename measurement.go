@@ -47,16 +47,16 @@ func (fs Fields) Dup(deep bool) Fields {
 //
 // Unless stated otherwise, the results of Tags and Fields are considered immutable.
 type Measurement interface {
-	Key() string
-	Tags() Tags
-	Fields() Fields
+	GetKey() string
+	GetTags() Tags
+	GetFields() Fields
 }
 
 // TimeMeasurement is a measurement that has a known, known, fixed time. It can be considered a measurement that is
 // fixed to a specific point in time. TimeMeasurements are not necessarily read-only and may, for example, return
 // time.Now(). In general, it is better to not implement TimeMeasurement if your measurement is returning time.Now().
 type TimeMeasurement interface {
-	Time() time.Time
+	GetTime() time.Time
 
 	Measurement
 }
@@ -128,8 +128,8 @@ func (p *Point) WriteTo(w io.Writer) (int64, error) {
 	return buf.WriteTo(w)
 }
 
-// Key returns the point's key.
-func (p *Point) Key() string {
+// GetKey returns the point's key.
+func (p *Point) GetKey() string {
 	return p.key
 }
 
@@ -235,9 +235,9 @@ func (p *Point) RemoveTag(name string) {
 	}
 }
 
-// Tags returns a copy of the point's tags as a map of names to values. Names and values are not escaped. It is safe to
-// copy and modify the result of this method.
-func (p *Point) Tags() Tags {
+// GetTags returns a copy of the point's tags as a map of names to values. Names and values are not escaped. It is safe
+// to copy and modify the result of this method.
+func (p *Point) GetTags() Tags {
 	p.m.RLock()
 	defer p.m.RUnlock()
 	return Tags(p.tags).Dup()
@@ -309,10 +309,10 @@ func (p *Point) RemoveField(name string) {
 	}
 }
 
-// Fields returns a map of the point's fields. This map is a copy of the point's state and may be modified without
+// GetFields returns a map of the point's fields. This map is a copy of the point's state and may be modified without
 // affecting the point. The fields themselves are those held by the point, however, and modifying them will modify the
 // point's state.
-func (p *Point) Fields() Fields {
+func (p *Point) GetFields() Fields {
 	p.m.RLock()
 	defer p.m.RUnlock()
 	return Fields(p.fields).Dup(false)

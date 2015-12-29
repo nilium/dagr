@@ -26,7 +26,7 @@ func TestPointSet(t *testing.T) {
 	})
 
 	recordRequest := func(path string, elapsed time.Duration) {
-		fields := p.GetFields(path, nil)
+		fields := p.FieldsForID(path, nil)
 		t.Logf("Fields for identifier %q: %#+ v", path, fields)
 		fields["count"].(*Int).Add(1)
 		fields["time_taken"].(*Float).Add(elapsed.Seconds())
@@ -91,7 +91,7 @@ func TestPointSetAllocator(t *testing.T) {
 	p := NewPointSet(testAllocator)
 
 	recordRequest := func(path string, elapsed time.Duration) {
-		fields := p.GetFields(path, nil)
+		fields := p.FieldsForID(path, nil)
 		t.Logf("Fields for identifier %q: %#+ v", path, fields)
 		if fields == nil {
 			return

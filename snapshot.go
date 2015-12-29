@@ -24,10 +24,10 @@ type timePoint struct {
 
 var _ = TimeMeasurement(timePoint{})
 
-func (t timePoint) Time() time.Time           { return t.when }
-func (t timePoint) Key() string               { return t.key }
-func (t timePoint) Fields() Fields            { return t.fields }
-func (t timePoint) Tags() Tags                { return t.tags }
+func (t timePoint) GetTime() time.Time        { return t.when }
+func (t timePoint) GetKey() string            { return t.key }
+func (t timePoint) GetFields() Fields         { return t.fields }
+func (t timePoint) GetTags() Tags             { return t.tags }
 func (t timePoint) Snapshot() TimeMeasurement { return t }
 
 // Snapshot creates and returns a new measurement that implements TimeMeasurement. This Measurement is detached from its
@@ -49,19 +49,19 @@ func Snapshot(m Measurement) TimeMeasurement {
 
 	var when time.Time
 	if m, ok := m.(TimeMeasurement); ok {
-		when = m.Time()
+		when = m.GetTime()
 	} else {
 		when = clock.Now()
 	}
 
-	key := m.Key()
+	key := m.GetKey()
 	if key == "" {
 		return nil
 	}
 
 	var (
-		srcTags   = m.Tags()
-		srcFields = m.Fields()
+		srcTags   = m.GetTags()
+		srcFields = m.GetFields()
 		fields    = make(Fields, len(srcFields))
 		tags      Tags
 	)
