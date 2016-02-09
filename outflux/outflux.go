@@ -72,6 +72,15 @@ func New(ctx context.Context, client *http.Client, destURL string) *Proxy {
 	return NewURL(ctx, client, du)
 }
 
+// Close stops the Proxy's runloop, if it was ever started. The Proxy is no longer usable if closed.
+func (w *Proxy) Close() error {
+	if err := w.ctx.Err(); err != nil {
+		return err
+	}
+	w.cancel()
+	return nil
+}
+
 type nopWriteCloser struct{ io.Writer }
 
 func (nopWriteCloser) Close() error { return nil }
