@@ -316,10 +316,12 @@ func (w *Proxy) send(body io.ReadCloser, encoding string) error {
 		logclose(resp.Body)
 	}()
 
-	// Ideally we'll get status 204, but we discard anything from InfluxDB that's a success.
+	// Ideally we'll get status 204, but we discard anything from InfluxDB that's regarded as a success.
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		const copiedSize int64 = 400
 		var buf bytes.Buffer
-		if _, err := io.Copy(&buf, resp.Body); err != nil {
+		buf.Grow(copiedSize)
+		if _, err := io.CopyN(&buf, resp.Body, copiedSize); err != nil && err != io.EOF {
 			logf("Unable to copy body in measurement send: %v", err)
 			return err
 		}

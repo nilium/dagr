@@ -102,8 +102,10 @@ func SendMeasurements(ctx context.Context, url *url.URL, client *http.Client, me
 	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		const copiedSize = 400
 		var buf bytes.Buffer
-		if _, copyerr := io.CopyN(&buf, resp.Body, 1024); copyerr != nil {
+		buf.Grow(copiedSize)
+		if _, copyerr := io.CopyN(&buf, resp.Body, copiedSize); copyerr != nil && copyerr != io.EOF {
 			logf("Error copying response from response body, discarding: %v", copyerr)
 			return err
 		}
