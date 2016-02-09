@@ -6,10 +6,15 @@ import (
 	"log"
 )
 
+// Logger is a basic logging interface that outflux uses to handle its logging behavior. You can set the logger by
+// modifying the Log package variable. This is not safe for concurrent modification by virtue of it being a package
+// variable, so you should only set it once at program startup, before you've given outflux a reason to log anything.
 type Logger interface {
 	Print(...interface{})
 }
 
+// Log is the Logger used by outflux. If nil, outflux will not log anything. All outflux log messages are prefixed with
+// "outflux: " to identify them.
 var Log Logger
 
 // stdlog is an empty struct that represents logging from the standard, global logger.
