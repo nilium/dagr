@@ -239,21 +239,28 @@ func (w *Proxy) swapAndSend() {
 		return
 	}
 
-	if err := w.send(rd); err != nil {
-
-	}
+	body, encoding := w.coder(rd)
+	go func() {
+		err := w.send(body, encoding)
+		if err != nil {
+			logf("Error sending request: %v", err)
+		}
+	}()
 }
 
 func (w *Proxy) coder(rd dubb.Reader) (rc io.ReadCloser, encoding string) {
-	if rd.Len() <= 1000 {
+	var buf bytes.Buffer
+	rd.WriteTo(&buf) // rd is now free for use elsewhere.
+
+	if buf.Len() <= 1000 {
 		// We truncate and close the dubb reader elsewhere, so make it a nop here.
-		return ioutil.NopCloser(rd), ""
+		return ioutil.NopCloser(&buf), ""
 	}
 
 	pr, pw := io.Pipe()
 	enc := gzip.NewWriter(pw)
 	go func() {
-		if _, err := rd.WriteTo(enc); err != nil {
+		if _, err := buf.WriteTo(enc); err != nil {
 			logf("Error writing measurements: %v", err)
 		}
 		if err := enc.Close(); err != nil {
@@ -267,7 +274,7 @@ func (w *Proxy) coder(rd dubb.Reader) (rc io.ReadCloser, encoding string) {
 	return pr, "gzip"
 }
 
-func (w *Proxy) send(rd dubb.Reader) error {
+func (w *Proxy) send(body io.ReadCloser, encoding string) error {
 	if err := w.ctx.Err(); err != nil {
 		return err
 	}
@@ -278,10 +285,10 @@ func (w *Proxy) send(rd dubb.Reader) error {
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	pr, encoding := w.coder(rd)
-	req, err := http.NewRequest("POST", w.destURL.String(), pr)
+
+	req, err := http.NewRequest("POST", w.destURL.String(), body)
 	if err != nil {
-		defer pr.Close()
+		logclose(body)
 		logf("Error creating request: %v", err)
 		return err
 	}
