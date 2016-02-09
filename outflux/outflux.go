@@ -2,7 +2,6 @@ package outflux
 
 import (
 	"bytes"
-	"compress/gzip"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -240,8 +239,8 @@ func (w *Proxy) swapAndSend(out chan<- error) {
 		return
 	}
 
-	go func(body io.ReadCloser, length int64, encoding string) {
-		err := w.send(body, length, encoding)
+	go func(body io.ReadCloser, length int64) {
+		err := w.send(body, length)
 		if err != nil {
 			logf("Error sending request: %v", err)
 		}
@@ -252,35 +251,13 @@ func (w *Proxy) swapAndSend(out chan<- error) {
 	}(w.coder(rd))
 }
 
-func (w *Proxy) coder(rd dubb.Reader) (rc io.ReadCloser, length int64, encoding string) {
-	const minGZIPLength = 1000
-
+func (w *Proxy) coder(rd dubb.Reader) (rc io.ReadCloser, length int64) {
 	var buf bytes.Buffer
-	rd.WriteTo(&buf) // rd is now free for use elsewhere.
-
-	if N := buf.Len(); N < minGZIPLength {
-		// We truncate and close the dubb reader elsewhere, so make it a nop here.
-		return ioutil.NopCloser(&buf), int64(N), ""
-	}
-
-	pr, pw := io.Pipe()
-	enc := gzip.NewWriter(pw)
-	go func() {
-		if _, err := buf.WriteTo(enc); err != nil {
-			logf("Error writing measurements: %v", err)
-		}
-		if err := enc.Close(); err != nil {
-			logf("Error closing gzip encoder: %v", err)
-		}
-		if err := pw.Close(); err != nil {
-			logf("Error closing pipe writer: %v", err)
-		}
-	}()
-
-	return pr, 0, "gzip"
+	N, _ := rd.WriteTo(&buf) // rd is now free for use elsewhere.
+	return ioutil.NopCloser(&buf), N
 }
 
-func (w *Proxy) send(body io.ReadCloser, contentLength int64, encoding string) error {
+func (w *Proxy) send(body io.ReadCloser, contentLength int64) error {
 	if err := w.ctx.Err(); err != nil {
 		return err
 	}
@@ -301,9 +278,6 @@ func (w *Proxy) send(body io.ReadCloser, contentLength int64, encoding string) e
 
 	req.ContentLength = contentLength
 	req.Header.Set("Content-Type", "")
-	if encoding != "" {
-		req.Header.Set("Content-Encoding", encoding)
-	}
 
 	resp, err := ctxhttp.Do(ctx, w.client, req)
 	if err != nil {

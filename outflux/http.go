@@ -2,7 +2,6 @@ package outflux
 
 import (
 	"bytes"
-	"compress/gzip"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -14,40 +13,17 @@ import (
 	"github.com/nilium/dagr"
 )
 
-func gzipMeasurementsBody(measurements ...dagr.Measurement) (encoding string, length int64, body io.ReadCloser, err error) {
-	const minGZIPLength = 1000 // 1kb
-
+func measurementsSendBody(measurements ...dagr.Measurement) (length int64, body io.ReadCloser, err error) {
 	var buf bytes.Buffer
 	if _, err = dagr.WriteMeasurements(&buf, measurements...); err != nil {
-		return "", 0, nil, err
+		return 0, nil, err
 	}
 
-	if N := buf.Len(); N < minGZIPLength {
-		return "", int64(buf.Len()), ioutil.NopCloser(&buf), nil
-	}
-
-	// GZIP-encode the body
-	r, w := io.Pipe()
-	enc := gzip.NewWriter(w)
-	go func() {
-		if _, werr := buf.WriteTo(enc); werr != nil {
-			logf("Error writing measurements: %v", werr)
-		}
-		if cerr := enc.Close(); cerr != nil {
-			logf("Error closing gzip encoder: %v", cerr)
-		}
-		if cerr := w.Close(); cerr != nil {
-			logf("Error closing pipe writer: %v", cerr)
-		}
-	}()
-
-	return encoding, 0, r, nil
+	return int64(buf.Len()), ioutil.NopCloser(&buf), nil
 }
 
 // SendMeasurements sends the dagr Measurements to the given URL as a POST request. If an error occurs, that error is
 // returned.
-//
-// The request is GZIP-encoded if it exceeds 1kb (1000 bytes) in length.
 func SendMeasurements(ctx context.Context, url *url.URL, client *http.Client, measurements ...dagr.Measurement) (err error) {
 	if ctx == nil {
 		panic("outflux: SendMeasurements: context is nil")
@@ -59,7 +35,7 @@ func SendMeasurements(ctx context.Context, url *url.URL, client *http.Client, me
 		panic("outflux: SendMeasurements: url is nil")
 	}
 
-	encoding, length, body, err := gzipMeasurementsBody(measurements...)
+	length, body, err := measurementsSendBody(measurements...)
 	if err != nil {
 		return err
 	}
@@ -84,9 +60,6 @@ func SendMeasurements(ctx context.Context, url *url.URL, client *http.Client, me
 	}
 
 	req.Header.Set("Content-Type", "")
-	if encoding != "" {
-		req.Header.Set("Content-Encoding", encoding)
-	}
 
 	resp, err := ctxhttp.Do(ctx, client, &req)
 	if err != nil {
