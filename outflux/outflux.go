@@ -33,7 +33,7 @@ type Proxy struct {
 	timeout time.Duration
 
 	startOnce sync.Once
-	flush     chan struct{}
+	flush     chan chan<- error
 	cancel    context.CancelFunc
 	ctx       context.Context
 }
@@ -57,7 +57,7 @@ func NewURL(ctx context.Context, timeout time.Duration, client *http.Client, des
 		buffer:  dubb.NewBuffer(64000),
 		client:  client,
 		timeout: timeout,
-		flush:   make(chan struct{}),
+		flush:   make(chan chan<- error),
 		cancel:  cancel,
 		ctx:     ctx,
 	}
@@ -185,7 +185,7 @@ func (w *Proxy) Start(interval time.Duration) context.CancelFunc {
 func (w *Proxy) sendEveryInterval(interval time.Duration) {
 	defer func() {
 		// Flush on close
-		w.swapAndSend()
+		w.swapAndSend(nil)
 		w.destURL = nil
 		w.buffer = nil
 		w.client = nil
@@ -204,9 +204,9 @@ func (w *Proxy) sendEveryInterval(interval time.Duration) {
 		case <-w.ctx.Done(): // Dead
 			return
 		case <-tick: // Send after interval (ticker is nil if interval <= 0)
-			w.swapAndSend()
-		case <-w.flush: // Send forced
-			w.swapAndSend()
+			w.swapAndSend(nil)
+		case errch := <-w.flush: // Send forced
+			w.swapAndSend(errch)
 		}
 	}
 }
@@ -214,17 +214,18 @@ func (w *Proxy) sendEveryInterval(interval time.Duration) {
 // Flush forces the Proxy to send out all buffered measurement data as soon as possible. It returns once the flush has
 // been received by the Proxy or the Proxy is closed. This only works after Start() has been called.
 //
-// Flush will currently only return an error if the Proxy has been closed.
+// Flush will block until the write completes and return any relevant error that occurred during the send.
 func (w *Proxy) Flush() error {
+	errch := make(chan error)
 	select {
 	case <-w.ctx.Done():
 		return w.ctx.Err()
-	case w.flush <- struct{}{}:
-		return nil
+	case w.flush <- errch:
+		return <-errch
 	}
 }
 
-func (w *Proxy) swapAndSend() {
+func (w *Proxy) swapAndSend(out chan<- error) {
 	buf := w.buffer
 
 	buf.Swap()
@@ -244,6 +245,10 @@ func (w *Proxy) swapAndSend() {
 		err := w.send(body, encoding)
 		if err != nil {
 			logf("Error sending request: %v", err)
+		}
+
+		if out != nil {
+			out <- err
 		}
 	}()
 }
