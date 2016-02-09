@@ -12,6 +12,6 @@ func (t testLogger) Print(args ...interface{}) {
 
 func logtest(t testingLogger) func() {
 	last := Log
-	Log = testLogger{log}
+	Log = testLogger{t}
 	return func() { Log = last }
 }
