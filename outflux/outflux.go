@@ -33,6 +33,7 @@ type Proxy struct {
 	timeout time.Duration
 
 	startOnce sync.Once
+	flush     chan struct{}
 	cancel    context.CancelFunc
 	ctx       context.Context
 }
@@ -56,6 +57,7 @@ func NewURL(ctx context.Context, timeout time.Duration, client *http.Client, des
 		buffer:  dubb.NewBuffer(64000),
 		client:  client,
 		timeout: timeout,
+		flush:   make(chan struct{}),
 		cancel:  cancel,
 		ctx:     ctx,
 	}
@@ -181,21 +183,44 @@ func (w *Proxy) Start(interval time.Duration) context.CancelFunc {
 }
 
 func (w *Proxy) sendEveryInterval(interval time.Duration) {
-	tick := time.NewTicker(interval)
 	defer func() {
+		// Flush on close
+		w.swapAndSend()
 		w.destURL = nil
 		w.buffer = nil
 		w.client = nil
-		tick.Stop()
 	}()
+
+	var tick <-chan time.Time
+	if interval > 0 {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		tick = ticker.C
+	}
 
 	for {
 		select {
-		case <-w.ctx.Done():
+		case <-w.ctx.Done(): // Dead
 			return
-		case <-tick.C:
+		case <-tick: // Send after interval (ticker is nil if interval <= 0)
+			w.swapAndSend()
+		case <-w.flush: // Send forced
 			w.swapAndSend()
 		}
+	}
+}
+
+// Flush forces the Proxy to send out all buffered measurement data as soon as possible. It returns once the flush has
+// been received by the Proxy or the Proxy is closed. This only works after Start() has been called.
+//
+// Flush will currently only return an error if the Proxy has been closed.
+func (w *Proxy) Flush() error {
+	select {
+	case <-w.ctx.Done():
+		return w.ctx.Err()
+	case w.flush <- struct{}{}:
+		return nil
 	}
 }
 
