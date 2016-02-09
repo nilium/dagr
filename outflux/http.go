@@ -22,25 +22,26 @@ func gzipMeasurementsBody(measurements ...dagr.Measurement) (encoding string, le
 		return "", 0, nil, err
 	}
 
-	if buf.Len() > minGZIPLength {
-		r, w := io.Pipe()
-		enc := gzip.NewWriter(w)
-		go func() {
-			if _, werr := buf.WriteTo(enc); werr != nil {
-				logf("Error writing measurements: %v", werr)
-			}
-			if cerr := enc.Close(); cerr != nil {
-				logf("Error closing gzip encoder: %v", cerr)
-			}
-			if cerr := w.Close(); cerr != nil {
-				logf("Error closing pipe writer: %v", cerr)
-			}
-		}()
-
-		return encoding, 0, r, nil
+	if N := buf.Len(); N < minGZIPLength {
+		return "", int64(buf.Len()), ioutil.NopCloser(&buf), nil
 	}
 
-	return "", int64(buf.Len()), ioutil.NopCloser(&buf), nil
+	// GZIP-encode the body
+	r, w := io.Pipe()
+	enc := gzip.NewWriter(w)
+	go func() {
+		if _, werr := buf.WriteTo(enc); werr != nil {
+			logf("Error writing measurements: %v", werr)
+		}
+		if cerr := enc.Close(); cerr != nil {
+			logf("Error closing gzip encoder: %v", cerr)
+		}
+		if cerr := w.Close(); cerr != nil {
+			logf("Error closing pipe writer: %v", cerr)
+		}
+	}()
+
+	return encoding, 0, r, nil
 }
 
 // SendMeasurements sends the dagr Measurements to the given URL as a POST request. If an error occurs, that error is

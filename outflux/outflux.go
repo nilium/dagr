@@ -240,9 +240,8 @@ func (w *Proxy) swapAndSend(out chan<- error) {
 		return
 	}
 
-	body, encoding := w.coder(rd)
-	go func() {
-		err := w.send(body, encoding)
+	go func(body io.ReadCloser, length int64, encoding string) {
+		err := w.send(body, length, encoding)
 		if err != nil {
 			logf("Error sending request: %v", err)
 		}
@@ -250,16 +249,18 @@ func (w *Proxy) swapAndSend(out chan<- error) {
 		if out != nil {
 			out <- err
 		}
-	}()
+	}(w.coder(rd))
 }
 
-func (w *Proxy) coder(rd dubb.Reader) (rc io.ReadCloser, encoding string) {
+func (w *Proxy) coder(rd dubb.Reader) (rc io.ReadCloser, length int64, encoding string) {
+	const minGZIPLength = 1000
+
 	var buf bytes.Buffer
 	rd.WriteTo(&buf) // rd is now free for use elsewhere.
 
-	if buf.Len() <= 1000 {
+	if N := buf.Len(); N < minGZIPLength {
 		// We truncate and close the dubb reader elsewhere, so make it a nop here.
-		return ioutil.NopCloser(&buf), ""
+		return ioutil.NopCloser(&buf), int64(N), ""
 	}
 
 	pr, pw := io.Pipe()
@@ -276,10 +277,10 @@ func (w *Proxy) coder(rd dubb.Reader) (rc io.ReadCloser, encoding string) {
 		}
 	}()
 
-	return pr, "gzip"
+	return pr, 0, "gzip"
 }
 
-func (w *Proxy) send(body io.ReadCloser, encoding string) error {
+func (w *Proxy) send(body io.ReadCloser, contentLength int64, encoding string) error {
 	if err := w.ctx.Err(); err != nil {
 		return err
 	}
@@ -298,6 +299,7 @@ func (w *Proxy) send(body io.ReadCloser, encoding string) error {
 		return err
 	}
 
+	req.ContentLength = contentLength
 	req.Header.Set("Content-Type", "")
 	if encoding != "" {
 		req.Header.Set("Content-Encoding", encoding)
@@ -318,9 +320,9 @@ func (w *Proxy) send(body io.ReadCloser, encoding string) error {
 
 	// Ideally we'll get status 204, but we discard anything from InfluxDB that's regarded as a success.
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		const copiedSize int64 = 400
+		const copiedSize = 400
 		var buf bytes.Buffer
-		buf.Grow(copiedSize)
+		buf.Grow(int(copiedSize))
 		if _, err := io.CopyN(&buf, resp.Body, copiedSize); err != nil && err != io.EOF {
 			logf("Unable to copy body in measurement send: %v", err)
 			return err
