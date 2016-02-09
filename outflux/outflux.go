@@ -182,7 +182,12 @@ func (w *Proxy) Start(interval time.Duration) context.CancelFunc {
 
 func (w *Proxy) sendEveryInterval(interval time.Duration) {
 	tick := time.NewTicker(interval)
-	defer tick.Stop()
+	defer func() {
+		w.destURL = nil
+		w.buffer = nil
+		w.client = nil
+		tick.Stop()
+	}()
 
 	for {
 		select {
