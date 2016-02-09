@@ -25,6 +25,11 @@ func (e BadStatusError) Error() string {
 
 type WriteFunc func(io.Writer) error
 
+// Proxy is a basic InfluxDB line protocol proxy. You may write measurements to it either using dagr or just via
+// functions such as fmt.Fprintf. Writes are accumulated for a given duration then POST-ed to the URL the Proxy was
+// configured with. It is safe to write to the Proxy while it is sending. Concurrent writes to the Proxy are safe, but
+// you should ensure that all writes are atomic and contain all necessary data or occur inside of a Transaction call to
+// ensure that nothing slips in between writes.
 type Proxy struct {
 	destURL *url.URL
 	buffer  *dubb.Buffer
@@ -37,6 +42,12 @@ type Proxy struct {
 	ctx       context.Context
 }
 
+// NewURL allocates a new Proxy with a given context, HTTP client, and URL. If the URL is nil, NewURL panics. If the
+// context is nil, a new background context is allocated specifically for the Proxy. The context is always wrapped with
+// a cancellation function that is called upon Close. The given timeout, if non-zero, is used to timeout and close HTTP
+// requests.  If <= 0, no timeout is used.
+//
+// If the HTTP client given is nil, NewURL will use http.DefaultClient.
 func NewURL(ctx context.Context, timeout time.Duration, client *http.Client, destURL *url.URL) *Proxy {
 	if destURL == nil {
 		panic("outflux: destination url is nil")
@@ -62,6 +73,8 @@ func NewURL(ctx context.Context, timeout time.Duration, client *http.Client, des
 	}
 }
 
+// New allocates a new Proxy with the given context, HTTP client, and URL. Unlike NewURL, this will parse the URL first.
+// If the URL is empty, New panics. See NewURL for further information.
 func New(ctx context.Context, timeout time.Duration, client *http.Client, destURL string) *Proxy {
 	if destURL == "" {
 		panic("outflux: destination url is nil")
@@ -144,6 +157,7 @@ func (w *Proxy) WriteMeasurements(measurements ...dagr.Measurement) (n int64, er
 	return dagr.WriteMeasurements(w, measurements...)
 }
 
+// WriteMeasurement writes a single measurement to the Proxy.
 func (w *Proxy) WriteMeasurement(measurement dagr.Measurement) (n int64, err error) {
 	if err := w.ctx.Err(); err != nil {
 		return 0, err
@@ -173,6 +187,8 @@ func (w *Proxy) WritePoint(key string, when time.Time, tags dagr.Tags, fields da
 	return dagr.WriteMeasurement(w, dagr.RawPoint{key, tags, fields, when})
 }
 
+// Start creates a goroutine that POSTs buffered data at the given interval. If interval is not a positive duration, the
+// Proxy will only send data when you call Flush.
 func (w *Proxy) Start(interval time.Duration) context.CancelFunc {
 	w.startOnce.Do(func() {
 		go w.sendEveryInterval(interval)
