@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"net/url"
 
+	"golang.org/x/net/context"
+	"golang.org/x/net/context/ctxhttp"
+
 	"github.com/nilium/dagr"
 )
 
@@ -42,7 +45,15 @@ func gzipMeasurementsBody(measurements ...dagr.Measurement) (encoding string, le
 
 // SendMeasurements sends the dagr Measurements to the given URL as a POST request. If an error occurs, that error is
 // returned.
-func SendMeasurements(url *url.URL, client *http.Client, measurements ...dagr.Measurement) (err error) {
+//
+// The request is GZIP-encoded if it exceeds 1kb (1000 bytes) in length.
+func SendMeasurements(ctx context.Context, url *url.URL, client *http.Client, measurements ...dagr.Measurement) (err error) {
+	if ctx == nil {
+		panic("outflux: SendMeasurements: context is nil")
+	} else if err = ctx.Err(); err != nil {
+		return err
+	}
+
 	if url == nil {
 		panic("outflux: SendMeasurements: url is nil")
 	}
@@ -76,11 +87,7 @@ func SendMeasurements(url *url.URL, client *http.Client, measurements ...dagr.Me
 		req.Header.Set("Content-Encoding", encoding)
 	}
 
-	if client == nil {
-		client = http.DefaultClient
-	}
-
-	resp, err := client.Do(&req)
+	resp, err := ctxhttp.Do(ctx, client, &req)
 	if err != nil {
 		logf("Error posting to InfluxDB: %v", err)
 		return err
