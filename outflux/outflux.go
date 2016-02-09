@@ -30,13 +30,14 @@ type Proxy struct {
 	destURL *url.URL
 	buffer  *dubb.Buffer
 	client  *http.Client
+	timeout time.Duration
 
 	startOnce sync.Once
 	cancel    context.CancelFunc
 	ctx       context.Context
 }
 
-func NewURL(ctx context.Context, client *http.Client, destURL *url.URL) *Proxy {
+func NewURL(ctx context.Context, timeout time.Duration, client *http.Client, destURL *url.URL) *Proxy {
 	if destURL == nil {
 		panic("outflux: destination url is nil")
 	}
@@ -54,12 +55,13 @@ func NewURL(ctx context.Context, client *http.Client, destURL *url.URL) *Proxy {
 		destURL: destURL,
 		buffer:  dubb.NewBuffer(64000),
 		client:  client,
+		timeout: timeout,
 		cancel:  cancel,
 		ctx:     ctx,
 	}
 }
 
-func New(ctx context.Context, client *http.Client, destURL string) *Proxy {
+func New(ctx context.Context, timeout time.Duration, client *http.Client, destURL string) *Proxy {
 	if destURL == "" {
 		panic("outflux: destination url is nil")
 	}
@@ -69,7 +71,7 @@ func New(ctx context.Context, client *http.Client, destURL string) *Proxy {
 		panic(fmt.Sprintf("outflux: error parsing url: %v", err))
 	}
 
-	return NewURL(ctx, client, du)
+	return NewURL(ctx, timeout, client, du)
 }
 
 // Close stops the Proxy's runloop, if it was ever started. The Proxy is no longer usable if closed.
@@ -236,6 +238,16 @@ func (w *Proxy) coder(rd dubb.Reader) (rc io.ReadCloser, encoding string) {
 }
 
 func (w *Proxy) send(rd dubb.Reader) error {
+	if err := w.ctx.Err(); err != nil {
+		return err
+	}
+
+	ctx := w.ctx
+	if timeout := w.timeout; timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 	pr, encoding := w.coder(rd)
 	req, err := http.NewRequest("POST", w.destURL.String(), pr)
 	if err != nil {
@@ -255,7 +267,7 @@ func (w *Proxy) send(rd dubb.Reader) error {
 		req.URL.User = nil
 	}
 
-	resp, err := ctxhttp.Do(w.ctx, w.client, req)
+	resp, err := ctxhttp.Do(ctx, w.client, req)
 	if err != nil {
 		logf("Error posting to InfluxDB: %v", err)
 		return err
