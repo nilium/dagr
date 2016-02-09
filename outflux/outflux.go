@@ -291,12 +291,6 @@ func (w *Proxy) send(rd dubb.Reader) error {
 		req.Header.Set("Content-Encoding", encoding)
 	}
 
-	if ui := req.URL.User; ui != nil {
-		pw, _ := ui.Password()
-		req.SetBasicAuth(ui.Username(), pw)
-		req.URL.User = nil
-	}
-
 	resp, err := ctxhttp.Do(ctx, w.client, req)
 	if err != nil {
 		logf("Error posting to InfluxDB: %v", err)
