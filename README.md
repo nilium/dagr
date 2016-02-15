@@ -49,14 +49,14 @@ go func() {
 
 The above will keep a count for the number of times `/v1/parrots/list` is accessed, assuming the handler only handles
 that particular path. As a long-term thing, this is fairly useful, because we'd like to know how many people want a list
-of parrots. The imporant thing is that updates to the regular Dagr types, Int, Float, String, and Bool, are atomic: you
+of parrots. The important thing is that updates to the regular Dagr types, Int, Float, String, and Bool, are atomic: you
 can increment from multiple goroutines and the increment will only block for a minimal amount of time. This also means
 that you can update these fields mid-write without interrupting the write or causing a data race (but you may
 occasionally end up with slightly out of sync fields between two writes).
 
 While the Int and Float types are useful as accumulators, you can also use Bool and String to keep global process state
 up to date in a Point, allowing you to periodically send whether the process is sleeping or what its current stage is
-(e.g., starting up vs. serving vs. shutting down).
+(e.g., started vs. listener started vs. stopped).
 
 Of course, you could also have short-time stats and allocate and expire them as needed. Dagr doesn't really enforce this
 model, it's just one way I think of things.
@@ -90,7 +90,7 @@ advanced usage can be seen in both Point and PointSet.
 
 Naturally, you may want to alert off of such errors, because a hole in the space time continuum is known to create bunny
 people and generally leads to all sorts of chaos. Point is, these are two different use-cases Dagr was built to
-accomodate, and there are likely more it could handle.
+accommodate, and there are likely more it could handle.
 
 
 ## Contributing
