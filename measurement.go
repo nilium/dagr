@@ -102,6 +102,14 @@ func NewPoint(key string, tags Tags, fields Fields) *Point {
 	return p
 }
 
+// SetKey sets the point's key.
+func (p *Point) SetKey(key string) {
+	p.m.Lock()
+	defer p.m.Unlock()
+
+	p.key = key
+}
+
 // WriteTo writes the point to the given writer, w. If an error occurs while building the point, it writes nothing and
 // return an error. If the point has no fields, it returns the error ErrNoFields.
 func (p *Point) WriteTo(w io.Writer) (int64, error) {
@@ -130,6 +138,8 @@ func (p *Point) WriteTo(w io.Writer) (int64, error) {
 
 // GetKey returns the point's key.
 func (p *Point) GetKey() string {
+	p.m.RLock()
+	defer p.m.RUnlock()
 	return p.key
 }
 
