@@ -130,6 +130,8 @@ type lockBuffer struct {
 }
 
 func (lb *lockBuffer) Write(b []byte) (n int, err error) {
+	lb.m.Lock()
+	defer lb.m.Unlock()
 	return lb.buf.Write(b)
 }
 
