@@ -1,0 +1,4 @@
+[gerrit]
+host=git.spiff.io
+port=29418
+project=dagr.git
