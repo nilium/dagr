@@ -1,5 +1,6 @@
 language: go
 
+go_import_path: go.spiff.io/dagr
 go:
 - 1.4.3
 - 1.5.2
