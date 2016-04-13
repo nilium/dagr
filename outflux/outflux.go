@@ -13,8 +13,8 @@ import (
 	"golang.org/x/net/context"
 	"golang.org/x/net/context/ctxhttp"
 
-	"github.com/nilium/dagr"
-	"github.com/nilium/dagr/outflux/internal/dubb"
+	"go.spiff.io/dagr"
+	"go.spiff.io/dagr/outflux/internal/dubb"
 )
 
 type BadStatusError int

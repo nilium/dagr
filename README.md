@@ -2,6 +2,8 @@
 
 [![Build Status](https://travis-ci.org/nilium/dagr.svg?branch=dev-v0)](https://travis-ci.org/nilium/dagr)
 
+	$ go get go.spiff.io/dagr
+
 Dagr is a simple library for tracking measurements and writing them out in an InfluxDB line-protocol-friendly format.
 
 ***Note: the Dagr API is currently unstable and may change during v0 development.*** I'll try to make these breaks

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nilium/dagr"
+	"go.spiff.io/dagr"
 )
 
 var writerlock sync.RWMutex

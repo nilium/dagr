@@ -10,7 +10,7 @@ import (
 	"golang.org/x/net/context"
 	"golang.org/x/net/context/ctxhttp"
 
-	"github.com/nilium/dagr"
+	"go.spiff.io/dagr"
 )
 
 func measurementsSendBody(measurements ...dagr.Measurement) (length int64, body io.ReadCloser, err error) {
