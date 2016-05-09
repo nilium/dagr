@@ -17,35 +17,21 @@ import (
 	"go.spiff.io/dagr"
 )
 
-type BadStatusError int
-
-func (e BadStatusError) Error() string {
-	return fmt.Sprintf("outflux: bad status returned: %d", int(e))
+// A taskqueue is a simple queue that is used to signal the start and end of a request. It must
+// implement begin() and end() methods. The former must block until there are resources available to
+// perform a task (the queue is assumed to be aware of this without being given a concrete task) and
+// block subsequent tasks while resources are unavailable.
+//
+// For a taskqueue with a capacity of 1, this would require only one task to begin and block others
+// until that task called end(), then repeating the same for another task.
+type taskqueue interface {
+	begin()
+	end()
 }
 
+// WriteFunc is any transactional function that accepts an io.Writer. The writer received by the
+// WriteFunc is only valid until it returns.
 type WriteFunc func(io.Writer) error
-
-type Option interface {
-	configure(*Proxy)
-}
-
-// FlushSize controls the minimum size to exceed before the Proxy will auto-flush itself.
-type FlushSize int
-
-func (sz FlushSize) configure(p *Proxy) {
-	p.flushSize = int(sz)
-}
-
-// Timeout controls the timeout for InfluxDB requests. If the timeout is <= 0, soft timeouts are disabled. This does not
-// affect client / transport and server timeouts.
-type Timeout time.Duration
-
-func (d Timeout) configure(p *Proxy) {
-	if d < 0 {
-		d = 0
-	}
-	p.timeout = time.Duration(d)
-}
 
 // Proxy is a basic InfluxDB line protocol proxy. You may write measurements to it either using dagr or just via
 // functions such as fmt.Fprintf. Writes are accumulated for a given duration then POST-ed to the URL the Proxy was
@@ -59,6 +45,12 @@ type Proxy struct {
 
 	timeout   time.Duration
 	flushSize int
+
+	director Director
+	requests taskqueue
+
+	retries   int
+	delayfunc BackoffFunc
 
 	startOnce sync.Once
 	flush     chan flushop
@@ -84,11 +76,15 @@ func NewURL(client *http.Client, destURL *url.URL, opts ...Option) *Proxy {
 		buffers = n
 	}
 	proxy := &Proxy{
-		destURL: destURL,
-		buffer:  newBufferchain(buffers, 4000),
-		client:  client,
-		flush:   make(chan flushop),
+		destURL:  destURL,
+		buffer:   newBufferchain(buffers, 4000),
+		client:   client,
+		requests: noRequestLimit{},
+		flush:    make(chan flushop),
 	}
+
+	DefaultBackoffFunc.configure(proxy)
+	DefaultRetries.configure(proxy)
 
 	for _, opt := range opts {
 		opt.configure(proxy)
@@ -124,7 +120,7 @@ func (w *Proxy) flushExcess() {
 	}
 	go func() {
 		if flerr := w.Flush(context.Background()); flerr != nil {
-			logf("Flush failed after reaching capacity %d: %v", max, flerr)
+			logf("Flush failed after reaching capacity=%d: %v", max, flerr)
 		}
 	}()
 }
@@ -231,7 +227,14 @@ func (w *Proxy) Start(ctx context.Context, interval time.Duration) {
 func (w *Proxy) sendEveryInterval(ctx context.Context, interval time.Duration) {
 	defer func() {
 		// Flush on close -- use a different context, though.
-		w.swapAndSend(context.Background(), nil)
+		ctx := context.Background()
+		if timeout := w.timeout; timeout > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
+		}
+
+		w.swapAndSend(ctx, nil)
 	}()
 
 	var tick <-chan time.Time
@@ -297,22 +300,56 @@ func (w *Proxy) swapAndSend(ctx context.Context, out chan<- error) {
 		return
 	}
 
-	go func(blob []byte) {
-		body := bytes.NewReader(blob)
-		err := w.send(ctx, body)
-		if err != nil {
-			logf("Error sending request: %v", err)
-		}
-
+	go func() {
+		err := w.sendData(ctx, data, w.retries)
 		if out != nil {
 			out <- err
 		}
-	}(data)
+	}()
 }
 
-func (w *Proxy) send(ctx context.Context, body *bytes.Reader) (err error) {
+func (w *Proxy) sendData(ctx context.Context, data []byte, retries int) error {
+	var (
+		done  = ctx.Done()
+		retry bool
+		err   error
+	)
+
+retryLoop:
+	for i := 0; i <= retries; i++ {
+		retry, err = w.send(ctx, bytes.NewReader(data))
+		if err == nil {
+			return nil
+		}
+
+		if !retry {
+			break retryLoop
+		}
+
+		next := w.delayfunc(i+1, retries)
+		if next <= 0 {
+			// Send now. If there's a context error, it'll be caught by send().
+			continue
+		}
+
+		select {
+		case <-time.After(next):
+		case <-done:
+			break retryLoop
+		}
+	}
+
+	if err != nil {
+		logf("Failed to send payload of size=%d to %s: %v", len(data), w.destURL.Host, err)
+	}
+
+	return err
+}
+
+func (w *Proxy) send(ctx context.Context, body *bytes.Reader) (retry bool, err error) {
 	if err = ctx.Err(); err != nil {
-		return err
+		// Whatever is returned here will necessarily all future retries.
+		return false, err
 	}
 
 	if timeout := w.timeout; timeout > 0 {
@@ -321,40 +358,49 @@ func (w *Proxy) send(ctx context.Context, body *bytes.Reader) (err error) {
 		defer cancel()
 	}
 
+	w.requests.begin()
+	defer w.requests.end()
+
 	req, err := http.NewRequest("POST", w.destURL.String(), body)
 	if err != nil {
 		logf("Error creating request: %v", err)
-		return err
+		// Error occurred creating the request itself, we can't do anything
+		return false, err
 	}
 
 	req.Header.Set("Content-Type", "")
+	if w.director != nil {
+		if err := w.director(req); err != nil {
+			return false, err
+		}
+	}
 
 	resp, err := ctxhttp.Do(ctx, w.client, req)
 	if err != nil {
+		if err == context.Canceled {
+			return false, err
+		}
+
 		logf("Error posting to InfluxDB: %v", err)
-		return err
+		return true, err
 	}
 	defer func() {
 		// Discard response.
-		if _, err := io.Copy(ioutil.Discard, resp.Body); err != nil {
-			logf("Error discarding InfluxDB response body: %v", err)
+		if _, copyerr := io.Copy(ioutil.Discard, resp.Body); copyerr != nil {
+			logf("Error discarding InfluxDB response body: %v", copyerr)
 		}
 		logclose(resp.Body)
 	}()
 
-	// Ideally we'll get status 204, but we discard anything from InfluxDB that's regarded as a success.
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		const copiedSize = 400
-		var buf bytes.Buffer
-		buf.Grow(int(copiedSize))
-		if _, err := io.CopyN(&buf, resp.Body, copiedSize); err != nil && err != io.EOF {
-			logf("Unable to copy body in measurement send: %v", err)
-			return err
-		}
+	// Per InfluxDB docs (0.11-ish I think, but possibly earlier), anything other than 204,
+	// including status 200, is an error.
+	if resp.StatusCode != 204 {
+		var sterr = &BadStatusError{Code: resp.StatusCode}
+		sterr.Body, sterr.Err = ioutil.ReadAll(resp.Body)
 
-		logf("Bad response from InfluxDB (%d): %s", resp.StatusCode, buf.Bytes())
-		return BadStatusError(resp.StatusCode)
+		logf("Bad response from InfluxDB: %v", sterr)
+		return false, sterr // InfluxDB rejected the response, so discard it.
 	}
 
-	return nil
+	return false, nil
 }
