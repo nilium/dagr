@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"runtime"
 	"sync"
 	"time"
 
@@ -14,7 +15,6 @@ import (
 	"golang.org/x/net/context/ctxhttp"
 
 	"go.spiff.io/dagr"
-	"go.spiff.io/dagr/outflux/internal/dubb"
 )
 
 type BadStatusError int
@@ -53,9 +53,10 @@ func (d Timeout) configure(p *Proxy) {
 // you should ensure that all writes are atomic and contain all necessary data or occur inside of a Transaction call to
 // ensure that nothing slips in between writes.
 type Proxy struct {
-	destURL   *url.URL
-	buffer    *dubb.Buffer
-	client    *http.Client
+	destURL *url.URL
+	buffer  *bufferchain
+	client  *http.Client
+
 	timeout   time.Duration
 	flushSize int
 
@@ -78,9 +79,13 @@ func NewURL(client *http.Client, destURL *url.URL, opts ...Option) *Proxy {
 		client = http.DefaultClient
 	}
 
+	buffers := 6
+	if n := (runtime.NumCPU() * 17) / 10; n > buffers {
+		buffers = n
+	}
 	proxy := &Proxy{
 		destURL: destURL,
-		buffer:  dubb.NewBuffer(16000),
+		buffer:  newBufferchain(buffers, 4000),
 		client:  client,
 		flush:   make(chan flushop),
 	}
@@ -133,27 +138,21 @@ func (w *Proxy) Write(b []byte) (int, error) {
 	return n, err
 }
 
-type proxyWriter struct {
-	dubb.WriteCloser
-	p   *Proxy
-	err error
-}
-
-func (w *proxyWriter) Close() error {
-	if w.p != nil {
-		p := w.p
-		*w = proxyWriter{err: w.WriteCloser.Close()}
-		p.flushExcess()
-	}
-	return w.err
-}
-
-// Writer returns a locked writer for the Proxy's write buffer. It must be closed to release the lock.
+// Writer returns a locked writer for the Proxy's write buffer. It must be closed to release the lock. Changes to the
+// Writer are not counted against the flush size, as the writer is not tracked by the Proxy.
 func (w *Proxy) Writer() io.WriteCloser {
+	wc := w.buffer.take()
 	if w.flushSize > 0 {
-		return &proxyWriter{WriteCloser: w.buffer.Writer(), p: w}
+		closer := wc.closer
+		wc.closer = closerfunc(func() error {
+			if err := closer.Close(); err != nil {
+				return err
+			}
+			w.flushExcess()
+			return nil
+		})
 	}
-	return w.buffer.Writer()
+	return wc
 }
 
 // Transaction locks the Proxy's write buffer and passes it to fn. Once fn completes, the lock is released. This is
@@ -171,10 +170,12 @@ func (w *Proxy) Writer() io.WriteCloser {
 //
 // The WriteFunc given may return an error. This has no effect on the outcome of the transaction and is entirely for
 // convenience. If the Proxy is closed, it will return the context error for its closure.
-func (w *Proxy) Transaction(fn WriteFunc) error {
+func (w *Proxy) Transaction(fn WriteFunc) (err error) {
 	wx := w.Writer()
 	defer func() {
-		logclose(wx)
+		if clerr := logclose(wx); err == nil {
+			err = clerr
+		}
 		w.flushExcess()
 	}()
 	return fn(wx)
@@ -290,22 +291,15 @@ func (w *Proxy) Flush(ctx context.Context) error {
 }
 
 func (w *Proxy) swapAndSend(ctx context.Context, out chan<- error) {
-	buf := w.buffer
-
-	buf.Swap()
-	rd := buf.Reader()
-	defer func() {
-		rd.Truncate(0)
-		logclose(rd)
-	}()
-
-	if rd.Len() == 0 {
+	data := w.buffer.flush()
+	if len(data) == 0 {
 		// Nothing to do.
 		return
 	}
 
-	go func(body io.ReadCloser, length int64) {
-		err := w.send(ctx, body, length)
+	go func(blob []byte) {
+		body := bytes.NewReader(blob)
+		err := w.send(ctx, body)
 		if err != nil {
 			logf("Error sending request: %v", err)
 		}
@@ -313,16 +307,14 @@ func (w *Proxy) swapAndSend(ctx context.Context, out chan<- error) {
 		if out != nil {
 			out <- err
 		}
-	}(w.coder(rd))
+	}(data)
 }
 
-func (w *Proxy) coder(rd dubb.Reader) (rc io.ReadCloser, length int64) {
-	var buf bytes.Buffer
-	N, _ := rd.WriteTo(&buf) // rd is now free for use elsewhere.
-	return ioutil.NopCloser(&buf), N
-}
+func (w *Proxy) send(ctx context.Context, body *bytes.Reader) (err error) {
+	if err = ctx.Err(); err != nil {
+		return err
+	}
 
-func (w *Proxy) send(ctx context.Context, body io.ReadCloser, contentLength int64) error {
 	if timeout := w.timeout; timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
@@ -331,12 +323,10 @@ func (w *Proxy) send(ctx context.Context, body io.ReadCloser, contentLength int6
 
 	req, err := http.NewRequest("POST", w.destURL.String(), body)
 	if err != nil {
-		logclose(body)
 		logf("Error creating request: %v", err)
 		return err
 	}
 
-	req.ContentLength = contentLength
 	req.Header.Set("Content-Type", "")
 
 	resp, err := ctxhttp.Do(ctx, w.client, req)
