@@ -323,6 +323,7 @@ retryLoop:
 		}
 
 		if !retry {
+			logf("Error sending payload of size=%d to %s - will not retry: %v", len(data), w.destURL.Host, err)
 			break retryLoop
 		}
 
@@ -332,6 +333,7 @@ retryLoop:
 			continue
 		}
 
+		logf("Error sending payload of size=%d to %s - will retry in %v: %v", len(data), w.destURL.Host, next, err)
 		select {
 		case <-time.After(next):
 		case <-done:
@@ -363,7 +365,6 @@ func (w *Proxy) send(ctx context.Context, body *bytes.Reader) (retry bool, err e
 
 	req, err := http.NewRequest("POST", w.destURL.String(), body)
 	if err != nil {
-		logf("Error creating request: %v", err)
 		// Error occurred creating the request itself, we can't do anything
 		return false, err
 	}
@@ -380,8 +381,6 @@ func (w *Proxy) send(ctx context.Context, body *bytes.Reader) (retry bool, err e
 		if err == context.Canceled {
 			return false, err
 		}
-
-		logf("Error posting to InfluxDB: %v", err)
 		return true, err
 	}
 	defer func() {
@@ -397,8 +396,6 @@ func (w *Proxy) send(ctx context.Context, body *bytes.Reader) (retry bool, err e
 	if resp.StatusCode != 204 {
 		var sterr = &BadStatusError{Code: resp.StatusCode}
 		sterr.Body, sterr.Err = ioutil.ReadAll(resp.Body)
-
-		logf("Bad response from InfluxDB: %v", sterr)
 		return false, sterr // InfluxDB rejected the response, so discard it.
 	}
 
