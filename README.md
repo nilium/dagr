@@ -126,5 +126,5 @@ should be part of your first changeset if you're not already credited.
 
 ## License
 
-Dagr is licensed under the ISC license. You should have received a copy of this license with Dagr in
-the LICENSE.txt file.
+Dagr is licensed under the 2-clause BSD license. You should have received a copy of this license
+with Dagr in the LICENSE.txt file.
