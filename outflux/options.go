@@ -74,7 +74,7 @@ func (c requestQueue) end()   { <-c }
 // A limit where n <= 0 removes the limit.
 func RequestLimit(n int) Option {
 	limit := &requestLimit{noRequestLimit{}}
-	if n <= 0 {
+	if n > 0 {
 		limit.queue = requestQueue(make(chan struct{}, n))
 	}
 	return limit
