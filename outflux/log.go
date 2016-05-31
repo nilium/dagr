@@ -1,42 +1,61 @@
 package outflux
 
 import (
-	"fmt"
 	"io"
-	"log"
+	"runtime"
+	"sync/atomic"
 )
 
-// Logger is a basic logging interface that outflux uses to handle its logging behavior. You can set the logger by
-// modifying the Log package variable. This is not safe for concurrent modification by virtue of it being a package
-// variable, so you should only set it once at program startup, before you've given outflux a reason to log anything.
+type logFunc func(format string, args ...interface{})
+
+// Logger is a basic logging interface that outflux uses to handle its logging behavior.
 type Logger interface {
-	Print(...interface{})
+	Printf(format string, args ...interface{})
 }
 
-// Log is the Logger used by outflux. If nil, outflux will not log anything. All outflux log messages are prefixed with
-// "outflux: " to identify them.
-var Log Logger
+// pkglog is the Log used by outflux. If nil, outflux will not log anything.
+//
+// Access to this is controlled by ReplaceLogger.
+var pkglog atomic.Value // storedLog
 
-// stdlog is an empty struct that represents logging from the standard, global logger.
-type stdlog struct{}
+type storedLog struct {
+	Logger
+}
 
-func (stdlog) Print(args ...interface{}) { log.Print(args...) }
-
-// Stdlog is a Logger that uses the standard log package's logger.
-var Stdlog = stdlog{}
-
-func logf(format string, args ...interface{}) {
-	if Log == nil {
-		return
+func (l storedLog) printer() logFunc {
+	if l.Logger == nil {
+		return nil
 	}
-
-	Log.Print("outflux: ", fmt.Sprintf(format, args...))
+	return l.Logger.Printf
 }
 
-func logclose(c io.Closer) error {
+func init() {
+	pkglog.Store(storedLog{Logger: nil})
+}
+
+// logger returns the current logging function.
+// If the current Logger is nil, it returns a nil function.
+func logger() logFunc {
+	return pkglog.Load().(storedLog).printer()
+}
+
+func logclose(c io.Closer, desc string) error {
 	err := c.Close()
-	if err != nil {
-		logf("Error closing %T: %v", c, err)
+	if log := logger(); log != nil && err != nil {
+		if _, file, line, ok := runtime.Caller(1); ok {
+			log("%s (%T): %v", desc, c, err)
+		} else {
+			log("%s (%T:%s:%d): %v", desc, c, file, line, err)
+		}
 	}
 	return err
+}
+
+// ReplaceLogger sets the current Logger for outflux and returns the previous Logger.
+//
+// This function is safe to call from multiple goroutines.
+func ReplaceLogger(log Logger) Logger {
+	got := pkglog.Load().(storedLog)
+	pkglog.Store(storedLog{Logger: log})
+	return got.Logger
 }

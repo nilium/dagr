@@ -54,8 +54,10 @@ func SendMeasurements(ctx context.Context, url *url.URL, client *http.Client, me
 	}
 
 	if err != nil {
-		logclose(body)
-		logf("Error creating request: %v", err)
+		logclose(body, "outflux request")
+		if log := logger(); log != nil {
+			log("Error creating request: %v", err)
+		}
 		return err
 	}
 
@@ -63,16 +65,20 @@ func SendMeasurements(ctx context.Context, url *url.URL, client *http.Client, me
 
 	resp, err := ctxhttp.Do(ctx, client, &req)
 	if err != nil {
-		logf("Error posting to InfluxDB: %v", err)
+		if log := logger(); log != nil {
+			log("Error posting to InfluxDB: %v", err)
+		}
 		return err
 	}
 	defer func() {
 		// Discard entire response so we can let the client reuse connections if it's set up to do so.
 		_, copyerr := io.Copy(ioutil.Discard, resp.Body)
 		if copyerr != nil && copyerr != io.EOF {
-			logf("Error copying response body to /dev/null: %v", err)
+			if log := logger(); log != nil {
+				log("Error copying response body to /dev/null: %v", err)
+			}
 		}
-		logclose(resp.Body)
+		logclose(resp.Body, "outflux response")
 	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -80,11 +86,15 @@ func SendMeasurements(ctx context.Context, url *url.URL, client *http.Client, me
 		var buf bytes.Buffer
 		buf.Grow(copiedSize)
 		if _, copyerr := io.CopyN(&buf, resp.Body, copiedSize); copyerr != nil && copyerr != io.EOF {
-			logf("Error copying response from response body, discarding: %v", copyerr)
+			if log := logger(); log != nil {
+				log("Error copying response from response body, discarding: %v", copyerr)
+			}
 			return err
 		}
 
-		logf("Bad response from InfluxDB (%d): %s", resp.StatusCode, buf.Bytes())
+		if log := logger(); log != nil {
+			log("Bad response from InfluxDB (%d): %s", resp.StatusCode, buf.Bytes())
+		}
 		return err
 	}
 

@@ -3,15 +3,46 @@ package outflux
 import (
 	"net/http"
 	"time"
+
+	"golang.org/x/net/context"
 )
 
-// Option is any configuration option capable of configuring a Proxy on creation.
+// Option is any configuration option capable of configuring a Proxy or its Sender on creation.
 type Option interface {
+	ProxyOption()
+}
+
+// A proxyOption is used to specifically configure a Proxy.
+type proxyOption interface {
+	Option
 	configure(*Proxy)
+}
+
+// A SenderOption is used to specifically configure a Sender.
+type SenderOption interface {
+	Option
+	Configure(context.Context, Sender)
+}
+
+type SenderOptionFunc func(context.Context, Sender)
+
+func (SenderOptionFunc) ProxyOption()                               {}
+func (fn SenderOptionFunc) Configure(ctx context.Context, s Sender) { fn(ctx, s) }
+
+func HTTPClient(c *http.Client) Option {
+	return SenderOptionFunc(func(ctx context.Context, s Sender) {
+		if s, ok := s.(interface {
+			SetHTTPClient(context.Context, *http.Client)
+		}); ok {
+			s.SetHTTPClient(ctx, c)
+		}
+	})
 }
 
 // FlushSize controls the minimum size to exceed before the Proxy will auto-flush itself.
 type FlushSize int
+
+func (FlushSize) ProxyOption() {}
 
 func (sz FlushSize) configure(p *Proxy) {
 	p.flushSize = int(sz)
@@ -21,6 +52,8 @@ func (sz FlushSize) configure(p *Proxy) {
 // disabled. This does not affect client / transport and server timeouts, the former of which must
 // be provided by way of an HTTP client on creation.
 type Timeout time.Duration
+
+func (d Timeout) ProxyOption() {}
 
 func (d Timeout) configure(p *Proxy) {
 	if d < 0 {
@@ -40,6 +73,8 @@ type RetryLimit int
 // undesirable number of open connections for higher retry counts.
 const DefaultRetries = RetryLimit(3)
 
+func (RetryLimit) ProxyOption() {}
+
 func (r RetryLimit) configure(p *Proxy) {
 	if r < 0 {
 		r = 0
@@ -50,6 +85,8 @@ func (r RetryLimit) configure(p *Proxy) {
 type requestLimit struct {
 	queue taskqueue
 }
+
+func (m *requestLimit) ProxyOption() {}
 
 func (m *requestLimit) configure(p *Proxy) {
 	p.requests = m.queue
@@ -87,6 +124,8 @@ func RequestLimit(n int) Option {
 // it uses DefaultBackoff.
 type BackoffFunc func(retry, maxRetries int) time.Duration
 
+func (BackoffFunc) ProxyOption() {}
+
 func (b BackoffFunc) configure(p *Proxy) {
 	if b == nil {
 		b = DefaultBackoff
@@ -96,6 +135,8 @@ func (b BackoffFunc) configure(p *Proxy) {
 
 // FixedBackoff defines a fixed backoff for a Proxy.
 type FixedBackoff time.Duration
+
+func (FixedBackoff) ProxyOption() {}
 
 // Backoff returns the concrete duration defined by the receiver regardless of retries attempted.
 func (d FixedBackoff) Backoff(int, int) time.Duration {
@@ -122,5 +163,23 @@ func DefaultBackoff(retry, maxRetries int) time.Duration {
 }
 
 // A Director is responsible for configuring an HTTP request as needed before sending it. If the
-// Director returns an error, the request is discarded immediately.
+// Director returns an error, the request should be discarded by its sender without retry. The
+// sender must implement a SetDirector(context.Context, Director) method for this to take effect.
 type Director func(*http.Request) error
+
+func (d Director) direct(req *http.Request) error {
+	if d == nil {
+		return nil
+	}
+	return d(req)
+}
+
+func (Director) ProxyOption() {}
+
+func (d Director) Configure(ctx context.Context, s Sender) {
+	if h, ok := s.(interface {
+		SetDirector(context.Context, Director)
+	}); ok {
+		h.SetDirector(ctx, d)
+	}
+}
