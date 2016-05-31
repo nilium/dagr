@@ -1,18 +1,14 @@
 package outflux
 
 import (
-	"bytes"
-	"fmt"
+	"errors"
 	"io"
-	"io/ioutil"
-	"net/http"
 	"net/url"
 	"runtime"
 	"sync"
 	"time"
 
 	"golang.org/x/net/context"
-	"golang.org/x/net/context/ctxhttp"
 
 	"go.spiff.io/dagr"
 )
@@ -39,9 +35,8 @@ type WriteFunc func(io.Writer) error
 // you should ensure that all writes are atomic and contain all necessary data or occur inside of a Transaction call to
 // ensure that nothing slips in between writes.
 type Proxy struct {
-	destURL *url.URL
-	buffer  *bufferchain
-	client  *http.Client
+	sender Sender
+	buffer *bufferchain
 
 	timeout   time.Duration
 	flushSize int
@@ -50,6 +45,7 @@ type Proxy struct {
 	director Director
 	requests taskqueue
 
+	seq       int64
 	retries   int
 	delayfunc BackoffFunc
 
@@ -57,61 +53,86 @@ type Proxy struct {
 	flush     chan flushop
 }
 
-// NewURL allocates a new Proxy with a given context, HTTP client, and URL. If the URL is nil, NewURL panics. If the
-// context is nil, a new background context is allocated specifically for the Proxy.
-//
-// Additional configuration can be provided by passing Option values, such as Timeout and FlushSize.
-//
-// If the HTTP client given is nil, NewURL will use http.DefaultClient.
-func NewURL(client *http.Client, destURL *url.URL, opts ...Option) *Proxy {
-	if destURL == nil {
-		panic("outflux: destination url is nil")
-	}
+var (
+	ErrNoSender = errors.New("outflux: proxy sender not configured")
+	ErrNoURL    = errors.New("outflux: URI is nil")
+	ErrNoWriter = errors.New("outflux: writer is nil")
+)
 
-	if client == nil {
-		client = http.DefaultClient
-	}
-
+func newProxy(ctx context.Context, sender Sender, opts ...Option) *Proxy {
 	buffers := 6
 	if n := (runtime.NumCPU() * 17) / 10; n > buffers {
 		buffers = n
 	}
 	proxy := &Proxy{
-		destURL:  destURL,
+		sender:   sender,
 		buffer:   newBufferchain(buffers, 4000),
-		client:   client,
 		requests: noRequestLimit{},
 		flush:    make(chan flushop),
 	}
 
 	DefaultBackoffFunc.configure(proxy)
 	DefaultRetries.configure(proxy)
-
-	for _, opt := range opts {
-		opt.configure(proxy)
-	}
+	proxy.configure(ctx, opts...)
 
 	return proxy
 }
 
+// NewURL allocates a new Proxy with a given context, HTTP client, and URL. If the URL is nil, NewURL panics. If the
+// context is nil, a new background context is allocated specifically for the Proxy.
+//
+// Additional configuration can be provided by passing Option values, such as Timeout and FlushSize.
+func NewURL(ctx context.Context, destURL *url.URL, opts ...Option) (*Proxy, error) {
+	if destURL == nil {
+		return nil, ErrNoURL
+	}
+
+	sender, err := allocSender(ctx, destURL)
+	if err != nil {
+		return nil, err
+	} else if sender == nil {
+		return nil, ErrNoSender
+	}
+
+	return newProxy(ctx, sender, opts...), nil
+}
+
+// NewWriter allocates a new proxy that writes its buffered output to dst. This will only return ErrNoWriter if dst is
+// nil.
+func NewWriter(ctx context.Context, dst io.Writer, opts ...Option) (*Proxy, error) {
+	if dst == nil {
+		return nil, ErrNoWriter
+	}
+
+	return newProxy(ctx, newWriterClient(ctx, dst), opts...), nil
+}
+
 // New allocates a new Proxy with the given context, HTTP client, and URL. Unlike NewURL, this will parse the URL first.
 // If the URL is empty, New panics. See NewURL for further information.
-func New(client *http.Client, destURL string, opts ...Option) *Proxy {
+func New(ctx context.Context, destURL string, opts ...Option) (*Proxy, error) {
 	if destURL == "" {
-		panic("outflux: destination url is nil")
+		return nil, ErrNoURL
 	}
 
 	du, err := url.Parse(destURL)
 	if err != nil {
-		panic(fmt.Sprintf("outflux: error parsing url: %v", err))
+		return nil, err
 	}
 
-	return NewURL(client, du, opts...)
+	return NewURL(ctx, du, opts...)
 }
 
-type nopWriteCloser struct{ io.Writer }
+func (w *Proxy) configure(ctx context.Context, opts ...Option) {
+	for _, opt := range opts {
+		if po, ok := opt.(proxyOption); ok {
+			po.configure(w)
+		}
 
-func (nopWriteCloser) Close() error { return nil }
+		if so, ok := opt.(SenderOption); ok {
+			so.Configure(ctx, w.sender)
+		}
+	}
+}
 
 // flushExcess attempts to flush the proxy's write buffer to InfluxDB if it exceeds the current flush size.
 func (w *Proxy) flushExcess() {
@@ -379,6 +400,19 @@ func (w *Proxy) swapAndSend(op flushop) {
 
 func (w *Proxy) sendData(ctx context.Context, data []byte, retries int) error {
 	var (
+		try = func(ctx context.Context) (retry bool, err error) {
+			w.requests.begin()
+			defer w.requests.end()
+
+			if timeout := w.timeout; timeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, timeout)
+				defer cancel()
+			}
+
+			return w.sender.Send(ctx, data)
+		}
+
 		done  = ctx.Done()
 		retry bool
 		err   error
@@ -386,87 +420,41 @@ func (w *Proxy) sendData(ctx context.Context, data []byte, retries int) error {
 
 retryLoop:
 	for i := 0; i <= retries; i++ {
-		retry, err = w.send(ctx, bytes.NewReader(data))
+		if err = ctx.Err(); err != nil {
+			// Whatever is returned here will necessarily all future retries.
+			break retryLoop
+		}
+
+		retry, err = try(ctx)
 		if err == nil {
 			return nil
 		}
 
-		if !retry {
-			logf("Error sending payload of size=%d to %s - will not retry: %v", len(data), w.destURL.Host, err)
+		if !retry || err == context.Canceled {
+			logf("Failed sending payload of size=%d via %v - will not retry: %v", len(data), w.sender, err)
 			break retryLoop
 		}
 
 		next := w.delayfunc(i+1, retries)
 		if next <= 0 {
 			// Send now. If there's a context error, it'll be caught by send().
-			continue
+			continue retryLoop
 		}
 
-		logf("Error sending payload of size=%d to %s - will retry in %v: %v", len(data), w.destURL.Host, next, err)
+		logf("Error sending payload of size=%d via %v - will retry in %v: %v", len(data), w.sender, next, err)
 		select {
 		case <-time.After(next):
 		case <-done:
+			if err == nil {
+				err = ctx.Err()
+			}
 			break retryLoop
 		}
 	}
 
 	if err != nil {
-		logf("Failed to send payload of size=%d to %s: %v", len(data), w.destURL.Host, err)
+		logf("Failed to send payload of size=%d via %v: %v", len(data), w.sender, err)
 	}
 
 	return err
-}
-
-func (w *Proxy) send(ctx context.Context, body *bytes.Reader) (retry bool, err error) {
-	if err = ctx.Err(); err != nil {
-		// Whatever is returned here will necessarily all future retries.
-		return false, err
-	}
-
-	if timeout := w.timeout; timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
-
-	w.requests.begin()
-	defer w.requests.end()
-
-	req, err := http.NewRequest("POST", w.destURL.String(), body)
-	if err != nil {
-		// Error occurred creating the request itself, we can't do anything
-		return false, err
-	}
-
-	req.Header.Set("Content-Type", "")
-	if w.director != nil {
-		if err := w.director(req); err != nil {
-			return false, err
-		}
-	}
-
-	resp, err := ctxhttp.Do(ctx, w.client, req)
-	if err != nil {
-		if err == context.Canceled {
-			return false, err
-		}
-		return true, err
-	}
-	defer func() {
-		// Discard response.
-		if _, copyerr := io.Copy(ioutil.Discard, resp.Body); copyerr != nil {
-			logf("Error discarding InfluxDB response body: %v", copyerr)
-		}
-		logclose(resp.Body)
-	}()
-
-	// Per InfluxDB docs (0.11-ish I think, but possibly earlier), anything other than 204,
-	// including status 200, is an error.
-	if resp.StatusCode != 204 {
-		var sterr = &BadStatusError{Code: resp.StatusCode}
-		sterr.Body, sterr.Err = ioutil.ReadAll(resp.Body)
-		return false, sterr // InfluxDB rejected the response, so discard it.
-	}
-
-	return false, nil
 }

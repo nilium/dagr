@@ -14,7 +14,7 @@ type Logger interface {
 }
 
 // Log is the Logger used by outflux. If nil, outflux will not log anything. All outflux log messages are prefixed with
-// "outflux: " to identify them.
+// "outflux: " to identify them. Log is not thread-safe and should not be modified after program startup.
 var Log Logger
 
 // stdlog is an empty struct that represents logging from the standard, global logger.

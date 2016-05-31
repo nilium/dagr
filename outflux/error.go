@@ -10,6 +10,10 @@ import (
 // to describe an InfluxDB JSON error message.
 var ErrNotInfluxError = errors.New("outflux: error is not an InfluxDB error")
 
+// ErrClosed is returned if a client is already closed and its being closed is a reason to stop
+// using the client.
+var ErrClosed = errors.New("outflux: client closed")
+
 // InfluxError is a generic error message from InfluxDB.
 type InfluxError struct {
 	Error string `json:"error"`
