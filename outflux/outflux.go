@@ -297,6 +297,9 @@ func (w *Proxy) swapAndSend(ctx context.Context, out chan<- error) {
 	data := w.buffer.flush()
 	if len(data) == 0 {
 		// Nothing to do.
+		if out != nil {
+			out <- nil
+		}
 		return
 	}
 
