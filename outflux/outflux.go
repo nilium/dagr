@@ -45,6 +45,7 @@ type Proxy struct {
 
 	timeout   time.Duration
 	flushSize int
+	flushlock sync.Mutex
 
 	director Director
 	requests taskqueue
@@ -114,15 +115,29 @@ func (nopWriteCloser) Close() error { return nil }
 
 // flushExcess attempts to flush the proxy's write buffer to InfluxDB if it exceeds the current flush size.
 func (w *Proxy) flushExcess() {
-	max := w.flushSize
-	if max <= 0 || w.buffer.Len() < max {
+	var (
+		unlock func()
+		max    = w.flushSize
+		length int
+	)
+
+loop:
+	length = w.buffer.Len()
+	if max <= 0 || length < max {
 		return
 	}
-	go func() {
-		if flerr := w.Flush(context.Background()); flerr != nil {
-			logf("Flush failed after reaching capacity=%d: %v", max, flerr)
-		}
-	}()
+
+	if unlock == nil {
+		unlock = w.flushlock.Unlock
+		w.flushlock.Lock()
+		defer func() { unlock() }()
+		goto loop
+	}
+
+	unlock = func() {}
+	if flerr := w.flushWithCapacity(context.Background(), max, w.flushlock.Unlock); flerr != nil {
+		logf("Flush failed after reaching capacity=%d: %v", max, flerr)
+	}
 }
 
 // Write writes the byte slice b to the write buffer of the Proxy. WriteMeasurements should be preferred to ensure that
@@ -234,7 +249,7 @@ func (w *Proxy) sendEveryInterval(ctx context.Context, interval time.Duration) {
 			defer cancel()
 		}
 
-		w.swapAndSend(ctx, nil)
+		w.swapAndSend(flushop{ctx: ctx, capacity: -1})
 	}()
 
 	var tick <-chan time.Time
@@ -251,21 +266,51 @@ func (w *Proxy) sendEveryInterval(ctx context.Context, interval time.Duration) {
 		case <-done: // Dead
 			return
 		case <-tick: // Send after interval (ticker is nil if interval <= 0)
-			w.swapAndSend(ctx, nil)
+			w.swapAndSend(flushop{ctx: ctx, capacity: -1})
 		case op := <-w.flush: // Send forced
-			w.swapAndSend(op.ctx, op.err)
+			buflen := w.buffer.Len()
+			if op.capacity >= 0 && buflen < op.capacity {
+				op.swapped()
+				op.reply(nil)
+				continue
+			}
+			w.swapAndSend(op)
 		}
 
 		// Reset timer if we're using that and not just flushing manually.
 		if timer != nil {
+			if !timer.Stop() {
+				<-timer.C
+			}
 			timer.Reset(interval)
 		}
 	}
 }
 
 type flushop struct {
-	ctx context.Context
-	err chan<- error
+	ctx      context.Context
+	err      chan<- error
+	capacity int
+
+	// swapFunc is a callback executed once the buffer has been swapped for a flush. This can be
+	// used to allow other goroutines to fail out of a swap if the buffer hasn't exceeded its
+	// limit.
+	swapFunc func()
+}
+
+func (f *flushop) swapped() {
+	if f.swapFunc != nil {
+		f.swapFunc()
+	}
+}
+
+func (f *flushop) reply(err error) {
+	if f.err != nil {
+		select {
+		case <-f.ctx.Done():
+		case f.err <- err:
+		}
+	}
 }
 
 // Flush forces the Proxy to send out all buffered measurement data as soon as possible. It returns once the flush has
@@ -275,15 +320,24 @@ type flushop struct {
 //
 // The context may not be nil.
 func (w *Proxy) Flush(ctx context.Context) error {
+	return w.flushWithCapacity(ctx, -1, nil)
+}
+
+func (w *Proxy) flushWithCapacity(ctx context.Context, capacity int, swapped func()) error {
 	if ctx == nil {
 		panic("outflux: context is nil")
 	}
+
 	errch := make(chan error, 1)
 	done := ctx.Done()
 	select {
 	case <-done:
+		if swapped != nil {
+			// failed, so signal to proceed
+			swapped()
+		}
 		return ctx.Err()
-	case w.flush <- flushop{ctx, errch}:
+	case w.flush <- flushop{ctx, errch, capacity, swapped}:
 		select {
 		case err := <-errch:
 			return err
@@ -293,21 +347,21 @@ func (w *Proxy) Flush(ctx context.Context) error {
 	}
 }
 
-func (w *Proxy) swapAndSend(ctx context.Context, out chan<- error) {
+func (w *Proxy) swapAndSend(op flushop) {
 	data := w.buffer.flush()
+	op.swapped()
+
 	if len(data) == 0 {
 		// Nothing to do.
-		if out != nil {
-			out <- nil
-		}
+		op.reply(nil)
 		return
 	}
 
 	go func() {
-		err := w.sendData(ctx, data, w.retries)
-		if out != nil {
-			out <- err
-		}
+		var err error
+		defer func() { op.reply(err) }()
+
+		err = w.sendData(op.ctx, data, w.retries)
 	}()
 }
 
