@@ -115,27 +115,33 @@ func (nopWriteCloser) Close() error { return nil }
 
 // flushExcess attempts to flush the proxy's write buffer to InfluxDB if it exceeds the current flush size.
 func (w *Proxy) flushExcess() {
+	max := w.flushSize
+	if max <= 0 {
+		return
+	}
+
 	var (
 		unlock func()
-		max    = w.flushSize
+		once   sync.Once
 		length int
 	)
 
 loop:
 	length = w.buffer.Len()
-	if max <= 0 || length < max {
+	if length < max {
+		if unlock != nil {
+		}
 		return
 	}
 
 	if unlock == nil {
-		unlock = w.flushlock.Unlock
 		w.flushlock.Lock()
-		defer func() { unlock() }()
+		unlock = func() { once.Do(w.flushlock.Unlock) }
+		defer unlock()
 		goto loop
 	}
 
-	unlock = func() {}
-	if flerr := w.flushWithCapacity(context.Background(), max, w.flushlock.Unlock); flerr != nil {
+	if flerr := w.flushWithCapacity(context.Background(), max, unlock); flerr != nil {
 		logf("Flush failed after reaching capacity=%d: %v", max, flerr)
 	}
 }
@@ -144,6 +150,9 @@ loop:
 // the writer is correctly sending InfluxDB line protocol messages, but may be used as a raw writer to the underlying
 // Proxy buffers.
 func (w *Proxy) Write(b []byte) (int, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
 	n, err := w.buffer.Write(b)
 	w.flushExcess()
 	return n, err
@@ -268,20 +277,12 @@ func (w *Proxy) sendEveryInterval(ctx context.Context, interval time.Duration) {
 		case <-tick: // Send after interval (ticker is nil if interval <= 0)
 			w.swapAndSend(flushop{ctx: ctx, capacity: -1})
 		case op := <-w.flush: // Send forced
-			buflen := w.buffer.Len()
-			if op.capacity >= 0 && buflen < op.capacity {
-				op.swapped()
-				op.reply(nil)
-				continue
-			}
 			w.swapAndSend(op)
+			continue
 		}
 
 		// Reset timer if we're using that and not just flushing manually.
 		if timer != nil {
-			if !timer.Stop() {
-				<-timer.C
-			}
 			timer.Reset(interval)
 		}
 	}
@@ -325,29 +326,40 @@ func (w *Proxy) Flush(ctx context.Context) error {
 
 func (w *Proxy) flushWithCapacity(ctx context.Context, capacity int, swapped func()) error {
 	if ctx == nil {
-		panic("outflux: context is nil")
+		logf("outflux: flushWithCapacity: context is nil")
+		ctx = context.TODO()
 	}
 
-	errch := make(chan error, 1)
-	done := ctx.Done()
+	var (
+		errch = make(chan error, 1)
+		done  = ctx.Done()
+		op    = flushop{ctx, errch, capacity, swapped}
+	)
 	select {
 	case <-done:
-		if swapped != nil {
-			// failed, so signal to proceed
-			swapped()
-		}
+		op.swapped()
 		return ctx.Err()
-	case w.flush <- flushop{ctx, errch, capacity, swapped}:
-		select {
-		case err := <-errch:
-			return err
-		case <-done:
-			return ctx.Err()
-		}
+	case w.flush <- op:
+	}
+
+	select {
+	case err := <-errch:
+		return err
+	case <-done:
+		return ctx.Err()
 	}
 }
 
 func (w *Proxy) swapAndSend(op flushop) {
+	if op.capacity < 0 {
+		// Always Flush
+	} else if buflen := w.buffer.Len(); buflen < op.capacity {
+		// flushExcess: buffer too small
+		op.swapped()
+		op.reply(nil)
+		return
+	}
+
 	data := w.buffer.flush()
 	op.swapped()
 
