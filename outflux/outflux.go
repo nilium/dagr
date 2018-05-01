@@ -396,6 +396,10 @@ retryLoop:
 			break retryLoop
 		}
 
+		if i >= retries {
+			break retryLoop
+		}
+
 		next := w.delayfunc(i+1, retries)
 		if next <= 0 {
 			// Send now. If there's a context error, it'll be caught by send().
