@@ -8,4 +8,4 @@
 //
 // dagr has a handful of types, Int, Float, Bool, and String, that allow atomic updates to their values from concurrent
 // goroutines, and a few provisions for writing measurements in line protocol format.
-package dagr
+package dagr // import "go.spiff.io/dagr"
