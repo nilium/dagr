@@ -1,6 +1,6 @@
 # Dagr
 
-[![Build Status](https://travis-ci.org/nilium/dagr.svg?branch=dev-v0)](https://travis-ci.org/nilium/dagr)
+[![CircleCI](https://circleci.com/gh/nilium/dagr/tree/master.svg?style=svg)](https://circleci.com/gh/nilium/dagr/tree/master)
 
 	$ go get go.spiff.io/dagr
 

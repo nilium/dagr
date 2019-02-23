@@ -1,7 +1,0 @@
-language: go
-
-go_import_path: go.spiff.io/dagr
-go:
-- 1.5.2
-- 1.6.2
-- tip
