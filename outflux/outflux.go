@@ -2,6 +2,7 @@ package outflux
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -10,9 +11,6 @@ import (
 	"runtime"
 	"sync"
 	"time"
-
-	"golang.org/x/net/context"
-	"golang.org/x/net/context/ctxhttp"
 
 	"go.spiff.io/dagr"
 )
@@ -442,6 +440,7 @@ func (w *Proxy) send(ctx context.Context, body *bytes.Reader) (retry bool, err e
 		return false, err
 	}
 
+	req = req.WithContext(ctx)
 	req.Header.Set("Content-Type", "")
 	if w.director != nil {
 		if err := w.director(req); err != nil {
@@ -449,7 +448,7 @@ func (w *Proxy) send(ctx context.Context, body *bytes.Reader) (retry bool, err e
 		}
 	}
 
-	resp, err := ctxhttp.Do(ctx, w.client, req)
+	resp, err := w.client.Do(req)
 	if err != nil {
 		if err == context.Canceled {
 			return false, err

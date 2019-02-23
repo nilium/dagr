@@ -2,13 +2,11 @@ package outflux
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
-
-	"golang.org/x/net/context"
-	"golang.org/x/net/context/ctxhttp"
 
 	"go.spiff.io/dagr"
 )
@@ -31,6 +29,10 @@ func SendMeasurements(ctx context.Context, url *url.URL, client *http.Client, me
 		return err
 	}
 
+	if client == nil {
+		client = http.DefaultClient
+	}
+
 	if url == nil {
 		panic("outflux: SendMeasurements: url is nil")
 	}
@@ -41,7 +43,7 @@ func SendMeasurements(ctx context.Context, url *url.URL, client *http.Client, me
 	}
 
 	requrl := *url
-	req := http.Request{
+	req := &http.Request{
 		Method:        "POST",
 		URL:           &requrl,
 		Proto:         "HTTP/1.1",
@@ -59,9 +61,10 @@ func SendMeasurements(ctx context.Context, url *url.URL, client *http.Client, me
 		return err
 	}
 
+	req = req.WithContext(ctx)
 	req.Header.Set("Content-Type", "")
 
-	resp, err := ctxhttp.Do(ctx, client, &req)
+	resp, err := client.Do(req)
 	if err != nil {
 		logf("Error posting to InfluxDB: %v", err)
 		return err
